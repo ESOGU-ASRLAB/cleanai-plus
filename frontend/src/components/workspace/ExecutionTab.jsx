@@ -14,6 +14,7 @@ import {
   FiArrowLeft,
   FiArrowRight,
   FiTerminal,
+  FiX,
 } from "react-icons/fi";
 
 const EXECUTION_STEPS = [
@@ -29,6 +30,7 @@ const ExecutionTab = ({ workspace }) => {
   const [view, setView] = useState("list"); // "list" | "create"
   const [executions, setExecutions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedExecution, setSelectedExecution] = useState(null);
 
   // Wizard State
   const [activeStep, setActiveStep] = useState(1);
@@ -37,8 +39,6 @@ const ExecutionTab = ({ workspace }) => {
   const [selectedPreprocessing, setSelectedPreprocessing] = useState(null);
   const [config, setConfig] = useState({
     batch_size: 32,
-    epochs: 10,
-    learning_rate: 0.001,
     device: "cpu",
   });
 
@@ -283,55 +283,6 @@ const ExecutionTab = ({ workspace }) => {
                   </p>
                 </div>
 
-                {/* Epochs */}
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Epochs
-                  </label>
-                  <div className="relative rounded-md shadow-sm">
-                    <input
-                      type="number"
-                      min="1"
-                      value={config.epochs}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          epochs: parseInt(e.target.value),
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 pl-3 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Number of complete passes through the dataset.
-                  </p>
-                </div>
-
-                {/* Learning Rate */}
-                <div className="col-span-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Learning Rate
-                  </label>
-                  <div className="relative rounded-md shadow-sm">
-                    <input
-                      type="number"
-                      step="0.0001"
-                      min="0"
-                      value={config.learning_rate}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          learning_rate: parseFloat(e.target.value),
-                        })
-                      }
-                      className="block w-full rounded-md border-gray-300 pl-3 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Step size at each iteration (for training).
-                  </p>
-                </div>
-
                 {/* Device */}
                 <div className="col-span-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -489,30 +440,44 @@ const ExecutionTab = ({ workspace }) => {
           <Button onClick={handleStartWizard}>Start Execution</Button>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ID
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {executions.map((exec) => (
-                <tr key={exec.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+        <div className="flex flex-col lg:flex-row gap-6 transition-all duration-300 ease-in-out">
+          <div
+            className={`transition-all duration-300 ${
+              selectedExecution ? "lg:w-1/2 xl:w-7/12" : "w-full"
+            }`}
+          >
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ID
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {executions.map((exec) => (
+                    <tr
+                      key={exec.id}
+                      onClick={() => setSelectedExecution(exec)}
+                      className={`cursor-pointer transition-colors ${
+                        selectedExecution?.id === exec.id
+                          ? "bg-blue-50"
+                          : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                       ${
                         exec.status === "completed"
                           ? "bg-green-100 text-green-800"
@@ -522,25 +487,150 @@ const ExecutionTab = ({ workspace }) => {
                               ? "bg-red-100 text-red-800"
                               : "bg-gray-100 text-gray-800"
                       }`}
-                    >
-                      {exec.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                    {exec.id}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(exec.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button className="text-primary-600 hover:text-primary-900">
-                      Details
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        >
+                          {exec.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                        {exec.id.substring(0, 8)}...
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(exec.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedExecution(exec);
+                          }}
+                          className="text-primary-600 hover:text-primary-900"
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {selectedExecution && (
+            <div className="lg:w-1/2 xl:w-5/12 animate-fade-in-up md:animate-slide-in-right">
+              <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden sticky top-6">
+                <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+                  <div>
+                    <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                      <FiTerminal className="text-gray-500" />
+                      Execution Details
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1 ml-6 font-mono">
+                      ID: {selectedExecution.id}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedExecution(null)}
+                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                  >
+                    <FiX size={18} />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">
+                  {/* Info Grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-50 rounded border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">Status</p>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                          ${
+                            selectedExecution.status === "completed"
+                              ? "bg-green-100 text-green-800"
+                              : selectedExecution.status === "running"
+                                ? "bg-blue-100 text-blue-800"
+                                : selectedExecution.status === "failed"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-gray-100 text-gray-800"
+                          }`}
+                      >
+                        {selectedExecution.status}
+                      </span>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">Created At</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {new Date(
+                          selectedExecution.created_at,
+                        ).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Config */}
+                  <div>
+                    <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                      <FiSettings className="mr-2" /> Configuration
+                    </h5>
+                    <div className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-100">
+                        <tbody className="divide-y divide-gray-100">
+                          {Object.entries(selectedExecution.config || {}).map(
+                            ([key, value]) => (
+                              <tr key={key}>
+                                <td className="px-4 py-2 text-xs font-medium text-gray-500 capitalize bg-gray-50/50 w-1/3">
+                                  {key.replace(/_/g, " ")}
+                                </td>
+                                <td className="px-4 py-2 text-xs text-gray-700 bg-white font-mono break-all">
+                                  {typeof value === "object"
+                                    ? JSON.stringify(value)
+                                    : String(value)}
+                                </td>
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Metrics */}
+                  <div>
+                    <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                      <FiActivity className="mr-2" /> Metrics
+                    </h5>
+                    {selectedExecution.metrics &&
+                    Object.keys(selectedExecution.metrics).length > 0 ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        {Object.entries(selectedExecution.metrics).map(
+                          ([key, value]) => (
+                            <div
+                              key={key}
+                              className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm"
+                            >
+                              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
+                                {key.replace(/_/g, " ")}
+                              </p>
+                              <p className="text-lg font-bold text-primary-600">
+                                {typeof value === "number"
+                                  ? value.toLocaleString(undefined, {
+                                      maximumFractionDigits: 4,
+                                    })
+                                  : String(value)}
+                              </p>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded border border-gray-100">
+                        No metrics available yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
