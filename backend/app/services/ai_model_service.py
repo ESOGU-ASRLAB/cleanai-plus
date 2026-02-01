@@ -110,3 +110,32 @@ class AIModelService:
             print(f"Error reading definition file: {e}")
             return None
 
+    async def update_model_definition(self, model_id: str, code: str) -> bool:
+        if not ObjectId.is_valid(model_id):
+            return False
+
+        model_doc = await self.models_collection.find_one({"_id": ObjectId(model_id)})
+        if not model_doc:
+            return False
+
+        model = AIModelInDB(**model_doc)
+        if not model.definition_file_path:
+            return False
+        
+        try:
+            # Create path if it doesn't exist (though it should if definition_file_path is set)
+            os.makedirs(os.path.dirname(model.definition_file_path), exist_ok=True)
+            
+            with open(model.definition_file_path, "w") as f:
+                f.write(code)
+            
+            # Update updated_at timestamp
+            await self.models_collection.update_one(
+                {"_id": ObjectId(model_id)},
+                {"$set": {"updated_at": datetime.utcnow()}}
+            )
+            return True
+        except Exception as e:
+            print(f"Error updating definition file: {e}")
+            return False
+

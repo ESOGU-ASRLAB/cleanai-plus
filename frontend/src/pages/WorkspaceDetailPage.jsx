@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import { MainLayout } from "../components/layout";
 import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
@@ -22,11 +23,13 @@ import {
   FiX,
   FiMaximize2,
   FiTerminal,
+  FiSave,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
   const { id } = useParams();
   const { token } = useAuth();
+  const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
 
   const [workspace, setWorkspace] = useState(null);
@@ -95,6 +98,44 @@ const WorkspaceDetailPage = () => {
       setSelectedModel(null);
     } else {
       handleModelSelect(model);
+    }
+  };
+
+  const handleDefinitionChange = (value) => {
+    if (selectedModel) {
+      setModelDefinitions((prev) => ({
+        ...prev,
+        [selectedModel._id]: value,
+      }));
+    }
+  };
+
+  const handleSaveDefinition = async () => {
+    if (!selectedModel || !modelDefinitions[selectedModel._id]) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}/models/${selectedModel._id}/definition`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            code: modelDefinitions[selectedModel._id],
+          }),
+        },
+      );
+
+      if (response.ok) {
+        success("Model definition updated successfully");
+      } else {
+        throw new Error("Failed to update definition");
+      }
+    } catch (err) {
+      errorToast(err.message || "Failed to save definition");
+      console.error(err);
     }
   };
 
@@ -696,15 +737,24 @@ const WorkspaceDetailPage = () => {
                           <FiCode className="text-gray-500" />
                           Model Definition: {selectedModel.name}
                         </h4>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedModel(null);
-                          }}
-                          className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
-                        >
-                          <FiX size={18} />
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={handleSaveDefinition}
+                            className="text-gray-500 hover:text-green-600 p-1.5 rounded-full hover:bg-green-50 transition-colors"
+                            title="Save Definition"
+                          >
+                            <FiSave size={18} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedModel(null);
+                            }}
+                            className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                          >
+                            <FiX size={18} />
+                          </button>
+                        </div>
                       </div>
 
                       <div className="p-0">
@@ -715,8 +765,9 @@ const WorkspaceDetailPage = () => {
                         ) : modelDefinitions[selectedModel._id] ? (
                           <WindowedCodeEditor
                             value={modelDefinitions[selectedModel._id]}
+                            onChange={handleDefinitionChange}
                             fileName={selectedModel.name}
-                            readOnly={true}
+                            readOnly={false}
                             height="600px"
                             options={{
                               minimap: { enabled: true },

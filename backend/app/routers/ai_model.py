@@ -101,6 +101,11 @@ async def list_workspace_models(
 
     return await model_service.get_models_by_workspace(workspace_id)
 
+from pydantic import BaseModel
+
+class DefinitionUpdate(BaseModel):
+    code: str
+
 @router.get("/{model_id}/definition", response_model=dict)
 async def get_model_definition(
     workspace_id: str,
@@ -122,4 +127,27 @@ async def get_model_definition(
         raise HTTPException(status_code=404, detail="Definition file not found or empty")
     
     return {"code": code}
+
+@router.put("/{model_id}/definition", status_code=status.HTTP_200_OK)
+async def update_model_definition(
+    workspace_id: str,
+    model_id: str,
+    definition: DefinitionUpdate,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
+):
+    """Update the definition code of a model."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    success = await model_service.update_model_definition(model_id, definition.code)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update definition. Model might not have a linked definition file.")
+    
+    return {"message": "Definition updated successfully"}
 

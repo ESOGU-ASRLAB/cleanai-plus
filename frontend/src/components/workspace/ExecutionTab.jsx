@@ -31,6 +31,7 @@ const ExecutionTab = ({ workspace }) => {
   const [executions, setExecutions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedExecution, setSelectedExecution] = useState(null);
+  const [showFullError, setShowFullError] = useState(false);
 
   // Wizard State
   const [activeStep, setActiveStep] = useState(1);
@@ -49,7 +50,19 @@ const ExecutionTab = ({ workspace }) => {
 
   useEffect(() => {
     fetchExecutions();
+    fetchAllResources();
   }, [workspace.id]);
+
+  const fetchAllResources = async () => {
+    const [m, d, p] = await Promise.all([
+      fetchData("models"),
+      fetchData("datasets"),
+      fetchData("preprocessing"),
+    ]);
+    setModels(m);
+    setDatasets(d);
+    setPreprocessings(p);
+  };
 
   const fetchExecutions = async () => {
     setLoading(true);
@@ -453,6 +466,16 @@ const ExecutionTab = ({ workspace }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
+                    {!selectedExecution && (
+                      <>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Model
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Dataset
+                        </th>
+                      </>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       ID
                     </th>
@@ -468,7 +491,10 @@ const ExecutionTab = ({ workspace }) => {
                   {executions.map((exec) => (
                     <tr
                       key={exec.id}
-                      onClick={() => setSelectedExecution(exec)}
+                      onClick={() => {
+                        setSelectedExecution(exec);
+                        setShowFullError(false);
+                      }}
                       className={`cursor-pointer transition-colors ${
                         selectedExecution?.id === exec.id
                           ? "bg-blue-50"
@@ -491,8 +517,22 @@ const ExecutionTab = ({ workspace }) => {
                           {exec.status}
                         </span>
                       </td>
+                      {!selectedExecution && (
+                        <>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {models.find(
+                              (m) => (m.id || m._id) === exec.model_id,
+                            )?.name || exec.model_id}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {datasets.find(
+                              (d) => (d.id || d._id) === exec.dataset_id,
+                            )?.name || exec.dataset_id}
+                          </td>
+                        </>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                        {exec.id.substring(0, 8)}...
+                        {exec.id}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(exec.created_at).toLocaleString()}
@@ -523,6 +563,20 @@ const ExecutionTab = ({ workspace }) => {
                     <h4 className="font-medium text-gray-900 flex items-center gap-2">
                       <FiTerminal className="text-gray-500" />
                       Execution Details
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ml-2
+                          ${
+                            selectedExecution.status === "completed"
+                              ? "bg-green-100 text-green-800"
+                              : selectedExecution.status === "running"
+                                ? "bg-blue-100 text-blue-800"
+                                : selectedExecution.status === "failed"
+                                  ? "bg-red-100 text-red-800"
+                                  : "bg-gray-100 text-gray-800"
+                          }`}
+                      >
+                        {selectedExecution.status}
+                      </span>
                     </h4>
                     <p className="text-xs text-gray-500 mt-1 ml-6 font-mono">
                       ID: {selectedExecution.id}
@@ -539,23 +593,44 @@ const ExecutionTab = ({ workspace }) => {
                 <div className="p-4 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">
                   {/* Info Grid */}
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Model Info */}
                     <div className="p-3 bg-gray-50 rounded border border-gray-100">
-                      <p className="text-xs text-gray-500 mb-1">Status</p>
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                          ${
-                            selectedExecution.status === "completed"
-                              ? "bg-green-100 text-green-800"
-                              : selectedExecution.status === "running"
-                                ? "bg-blue-100 text-blue-800"
-                                : selectedExecution.status === "failed"
-                                  ? "bg-red-100 text-red-800"
-                                  : "bg-gray-100 text-gray-800"
-                          }`}
-                      >
-                        {selectedExecution.status}
-                      </span>
+                      <p className="text-xs text-gray-500 mb-1">Model</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {models.find(
+                          (m) => (m.id || m._id) === selectedExecution.model_id,
+                        )?.name || selectedExecution.model_id}
+                      </p>
                     </div>
+
+                    {/* Dataset Info */}
+                    <div className="p-3 bg-gray-50 rounded border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">Dataset</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {datasets.find(
+                          (d) =>
+                            (d.id || d._id) === selectedExecution.dataset_id,
+                        )?.name || selectedExecution.dataset_id}
+                      </p>
+                    </div>
+
+                    {/* Preprocessing Info */}
+                    <div className="p-3 bg-gray-50 rounded border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">
+                        Preprocessing
+                      </p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedExecution.preprocessing_id
+                          ? preprocessings.find(
+                              (p) =>
+                                (p.id || p._id) ===
+                                selectedExecution.preprocessing_id,
+                            )?.name || "Unknown"
+                          : "None (Raw Data)"}
+                      </p>
+                    </div>
+
+                    {/* Created At Info */}
                     <div className="p-3 bg-gray-50 rounded border border-gray-100">
                       <p className="text-xs text-gray-500 mb-1">Created At</p>
                       <p className="text-sm font-medium text-gray-900">
@@ -565,6 +640,35 @@ const ExecutionTab = ({ workspace }) => {
                       </p>
                     </div>
                   </div>
+
+                  {/* Error Message */}
+                  {selectedExecution.status === "failed" &&
+                    selectedExecution.error_message && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 animate-fade-in-up">
+                        <h5 className="text-sm font-medium text-red-800 mb-2 flex items-center">
+                          <FiAlertCircle className="mr-2" /> Error Details
+                        </h5>
+                        <p
+                          className={`text-sm text-red-700 font-mono whitespace-pre-wrap break-all bg-white p-3 rounded border border-red-100 ${
+                            !showFullError && "line-clamp-3"
+                          }`}
+                        >
+                          {selectedExecution.error_message}
+                        </p>
+                        {selectedExecution.error_message &&
+                          selectedExecution.error_message.length > 200 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowFullError(!showFullError);
+                              }}
+                              className="text-xs text-red-600 font-medium mt-2 hover:underline focus:outline-none"
+                            >
+                              {showFullError ? "Show Less" : "Show More"}
+                            </button>
+                          )}
+                      </div>
+                    )}
 
                   {/* Config */}
                   <div>
