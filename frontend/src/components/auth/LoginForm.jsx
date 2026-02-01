@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import { useAuth } from "../../context/AuthContext";
 import { Button, Input, Card } from "../common";
 
 const LoginForm = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -62,8 +64,8 @@ const LoginForm = () => {
         throw new Error(data.detail || "Login failed");
       }
 
-      // Store token
-      localStorage.setItem("token", data.access_token);
+      // Store token using AuthContext
+      login(data.access_token);
 
       // Navigate to dashboard (or home for now)
       navigate("/");

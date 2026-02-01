@@ -6,6 +6,7 @@ import {
   Navigate,
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ToastProvider } from "./context/ToastContext";
 import RegisterPage from "./pages/RegisterPage";
 import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/LandingPage";
@@ -38,49 +39,74 @@ const ProtectedRoute = ({ children }) => {
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 };
 
+// Guest Only Route Wrapper
+const GuestOnlyRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) return <div>Loading...</div>;
+
+  return !isAuthenticated ? children : <Navigate to="/" replace />;
+};
+
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<HomeRouter />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/workspaces/new"
-            element={
-              <ProtectedRoute>
-                <NewWorkspacePage />
-              </ProtectedRoute>
-            }
-          />{" "}
-          <Route
-            path="/workspaces/:id"
-            element={
-              <ProtectedRoute>
-                <WorkspaceDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/workspaces/:id/models/new"
-            element={
-              <ProtectedRoute>
-                <NewModelPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/workspaces/:id/datasets/new"
-            element={
-              <ProtectedRoute>
-                <NewDatasetPage />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </Router>
-    </AuthProvider>
+    <Router>
+      <ToastProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<HomeRouter />} />
+            <Route
+              path="/register"
+              element={
+                <GuestOnlyRoute>
+                  <RegisterPage />
+                </GuestOnlyRoute>
+              }
+            />
+            <Route
+              path="/login"
+              element={
+                <GuestOnlyRoute>
+                  <LoginPage />
+                </GuestOnlyRoute>
+              }
+            />
+            <Route
+              path="/workspaces/new"
+              element={
+                <ProtectedRoute>
+                  <NewWorkspacePage />
+                </ProtectedRoute>
+              }
+            />{" "}
+            <Route
+              path="/workspaces/:id"
+              element={
+                <ProtectedRoute>
+                  <WorkspaceDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/workspaces/:id/models/new"
+              element={
+                <ProtectedRoute>
+                  <NewModelPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/workspaces/:id/datasets/new"
+              element={
+                <ProtectedRoute>
+                  <NewDatasetPage />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </ToastProvider>
+    </Router>
   );
 }
 

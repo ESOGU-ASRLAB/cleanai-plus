@@ -14,6 +14,7 @@ import {
   FiCpu,
 } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext";
 
 const AVAILABLE_TRANSFORMS = [
   {
@@ -90,6 +91,7 @@ const generatePythonCode = (steps) => {
 
 const PreprocessingTab = ({ workspace }) => {
   const { token } = useAuth();
+  const { warning } = useToast();
   const [view, setView] = useState("list"); // "list" | "edit" | "create"
   const [preprocessingList, setPreprocessingList] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
@@ -170,7 +172,7 @@ const PreprocessingTab = ({ workspace }) => {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) return alert("Please enter a name");
+    if (!name.trim()) return warning("Please enter a name");
 
     setSaving(true);
     try {

@@ -1,3 +1,5 @@
+--index-url https://download.pytorch.org/whl/cu118
+
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 motor==3.6.0
@@ -15,3 +17,5 @@ numpy
 Pillow
 torch
 torchvision
+onnxruntime-gpu
+safetensors

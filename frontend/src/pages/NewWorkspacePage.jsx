@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { MainLayout } from "../components/layout";
 import { Card, Input, Button } from "../components/common";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import { FiFolder } from "react-icons/fi";
 
 const NewWorkspacePage = () => {
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { error } = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -33,7 +35,7 @@ const NewWorkspacePage = () => {
       const data = await response.json();
       navigate("/"); // Go back to dashboard
     } catch (err) {
-      alert(err.message);
+      error(err.message);
     } finally {
       setLoading(false);
     }

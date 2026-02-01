@@ -21,6 +21,7 @@ import {
   FiCode,
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 const MODEL_FORMATS = [
   {
@@ -42,6 +43,16 @@ const MODEL_FORMATS = [
     usage: "load_file(path) -> model.load_state_dict(sd)",
     color: "border-blue-500 bg-blue-50",
     needsDefinition: true,
+  },
+  {
+    id: "onnx",
+    title: "ONNX",
+    icon: FiPackage,
+    description:
+      "Open format (Open Neural Network Exchange). Interoperable across frameworks and optimized for inference.",
+    usage: "onnx.load(path) / ort.InferenceSession(path)",
+    color: "border-indigo-500 bg-indigo-50",
+    needsDefinition: false,
   },
   {
     id: "torchscript",
@@ -79,6 +90,7 @@ const NewModelPage = () => {
   const { id: workspaceId } = useParams();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { error, warning } = useToast();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -130,12 +142,12 @@ const NewModelPage = () => {
   const handleNext = () => {
     // Step 1: Validation
     if (currentStep === 1 && !formData.name) {
-      alert("Please enter a model name.");
+      warning("Please enter a model name.");
       return;
     }
     // Step 3: File validation
     if (currentStep === 3 && !file) {
-      alert("Please select a model file.");
+      warning("Please select a model file.");
       return;
     }
 
@@ -225,7 +237,7 @@ const NewModelPage = () => {
 
       navigate(`/workspaces/${workspaceId}`);
     } catch (err) {
-      alert(`Error: ${err.message}`);
+      error(`Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -534,9 +546,7 @@ const NewModelPage = () => {
                     <div className="mt-2 p-3 bg-blue-50 rounded border border-blue-200 flex items-center">
                       <FiCode className="mr-2 text-blue-700" />
                       <span className="text-blue-800 font-medium">
-                        {fileName.endsWith(".py")
-                          ? fileName
-                          : `${fileName}.py`}{" "}
+                        {fileName.endsWith(".py") ? fileName : `${fileName}.py`}{" "}
                         (From Editor)
                       </span>
                     </div>

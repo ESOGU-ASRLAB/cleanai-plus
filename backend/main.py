@@ -4,6 +4,17 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+
+# Patch to increase file upload limit for large datasets
+# Monkey patch Request.form to increase default max_files and max_fields
+import starlette.requests
+_original_form = starlette.requests.Request.form
+
+async def _custom_form(self, *, max_files=100000, max_fields=100000):
+    return await _original_form(self, max_files=max_files, max_fields=max_fields)
+
+starlette.requests.Request.form = _custom_form
+
 from app.database.mongodb import connect_to_mongo, close_mongo_connection, get_database
 from app.routers import health
 from app.routers.auth import auth_router

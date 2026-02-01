@@ -432,7 +432,7 @@ const ExecutionTab = ({ workspace }) => {
 
         <Stepper steps={EXECUTION_STEPS} currentStep={activeStep} />
 
-        <div className="mt-8 min-h-[300px]">{renderStepContent()}</div>
+        <div className="mt-8">{renderStepContent()}</div>
 
         <div className="mt-8 flex justify-between pt-6 border-t border-gray-100">
           <Button

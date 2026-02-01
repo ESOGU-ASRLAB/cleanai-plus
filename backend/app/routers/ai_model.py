@@ -53,7 +53,8 @@ async def upload_model(
         ModelFormat.FULL_MODEL: ['.pt', '.pth', '.pkl'],
         ModelFormat.TORCHSCRIPT: ['.pt', '.pth'],
         ModelFormat.SAFETENSORS: ['.safetensors'],
-        ModelFormat.CHECKPOINT: ['.ckpt', '.pt', '.pth']
+        ModelFormat.CHECKPOINT: ['.ckpt', '.pt', '.pth'],
+        ModelFormat.ONNX: ['.onnx']
     }
     
     valid_exts = allowed_exts.get(format, [])

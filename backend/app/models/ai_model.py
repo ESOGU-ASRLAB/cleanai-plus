@@ -11,6 +11,7 @@ class ModelFormat(str, Enum):
     TORCHSCRIPT = "torchscript"
     SAFETENSORS = "safetensors"
     CHECKPOINT = "checkpoint"
+    ONNX = "onnx"
 
 class AIModelBase(BaseModel):
     name: str

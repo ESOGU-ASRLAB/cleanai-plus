@@ -19,6 +19,7 @@ import {
   FiEdit2,
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import * as XLSX from "xlsx";
 
 const DATASET_TYPES = [
@@ -172,6 +173,7 @@ const NewDatasetPage = () => {
   const { id: workspaceId } = useParams();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { error, warning } = useToast();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -217,7 +219,7 @@ const NewDatasetPage = () => {
     if (editValue && editValue.trim() !== oldName) {
       const newName = editValue.trim();
       if (previewData.classes[newName]) {
-        alert("Class name already exists!");
+        warning("Class name already exists!");
         // Don't close edit mode so user can fix it
         return;
       }
@@ -448,9 +450,9 @@ const NewDatasetPage = () => {
       // Combine file-specific schema info with global dataset settings
       const finalSchema = {
         files: schemaInfo,
-        ...datasetSettings
+        ...datasetSettings,
       };
-      
+
       data.append("schema_info", JSON.stringify(finalSchema));
       data.append("paths_json", JSON.stringify(paths));
 
@@ -472,7 +474,7 @@ const NewDatasetPage = () => {
 
       navigate(`/workspaces/${workspaceId}`); // Or to dataset detail
     } catch (err) {
-      alert("Error: " + err.message);
+      error("Error: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -805,59 +807,72 @@ const NewDatasetPage = () => {
               {/* Object Detection Specific Settings */}
               {formData.type === "object_detection" && (
                 <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
-                   <h3 className="text-sm font-medium text-green-800 mb-3 flex items-center">
-                      <FiGrid className="mr-2" /> Dataset Configuration
-                   </h3>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-green-700 mb-1">
-                          Annotation Format
-                        </label>
-                        <select
-                          className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 text-sm"
-                          value={datasetSettings.annotation_format || ""}
-                          onChange={(e) => setDatasetSettings(prev => ({ ...prev, annotation_format: e.target.value }))}
-                        >
-                          <option value="">-- Select Format --</option>
-                          <option value="yolo">YOLO (txt per image)</option>
-                          <option value="coco">COCO (single json)</option>
-                          <option value="pascal_voc">Pascal VOC (xml per image)</option>
-                          <option value="open_images">Open Images</option>
-                          <option value="kitti">KITTI</option>
-                        </select>
-                        <p className="mt-1 text-xs text-green-600">
-                          Required for training. Specifies how the bounding boxes are encoded.
-                        </p>
-                      </div>
-                   </div>
+                  <h3 className="text-sm font-medium text-green-800 mb-3 flex items-center">
+                    <FiGrid className="mr-2" /> Dataset Configuration
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-green-700 mb-1">
+                        Annotation Format
+                      </label>
+                      <select
+                        className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 text-sm"
+                        value={datasetSettings.annotation_format || ""}
+                        onChange={(e) =>
+                          setDatasetSettings((prev) => ({
+                            ...prev,
+                            annotation_format: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">-- Select Format --</option>
+                        <option value="yolo">YOLO (txt per image)</option>
+                        <option value="coco">COCO (single json)</option>
+                        <option value="pascal_voc">
+                          Pascal VOC (xml per image)
+                        </option>
+                        <option value="open_images">Open Images</option>
+                        <option value="kitti">KITTI</option>
+                      </select>
+                      <p className="mt-1 text-xs text-green-600">
+                        Required for training. Specifies how the bounding boxes
+                        are encoded.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
               {/* Other/Unstructured Specific Settings */}
               {formData.type === "other" && (
                 <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4">
-                   <h3 className="text-sm font-medium text-gray-800 mb-3 flex items-center">
-                      <FiLayers className="mr-2" /> Data Content Type
-                   </h3>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Primary Modality
-                        </label>
-                        <select
-                          className="w-full border-gray-300 rounded-md shadow-sm focus:border-gray-500 focus:ring-gray-500 text-sm"
-                          value={datasetSettings.modality || ""}
-                          onChange={(e) => setDatasetSettings(prev => ({ ...prev, modality: e.target.value }))}
-                        >
-                          <option value="">-- Select Type --</option>
-                          <option value="text">Natural Language (Text)</option>
-                          <option value="audio">Audio / Speech</option>
-                          <option value="video">Video</option>
-                          <option value="timeseries">Time Series (Raw)</option>
-                          <option value="mixed">Mixed / Multimodal</option>
-                        </select>
-                      </div>
-                   </div>
+                  <h3 className="text-sm font-medium text-gray-800 mb-3 flex items-center">
+                    <FiLayers className="mr-2" /> Data Content Type
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Primary Modality
+                      </label>
+                      <select
+                        className="w-full border-gray-300 rounded-md shadow-sm focus:border-gray-500 focus:ring-gray-500 text-sm"
+                        value={datasetSettings.modality || ""}
+                        onChange={(e) =>
+                          setDatasetSettings((prev) => ({
+                            ...prev,
+                            modality: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">-- Select Type --</option>
+                        <option value="text">Natural Language (Text)</option>
+                        <option value="audio">Audio / Speech</option>
+                        <option value="video">Video</option>
+                        <option value="timeseries">Time Series (Raw)</option>
+                        <option value="mixed">Mixed / Multimodal</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               )}
 

@@ -19,6 +19,43 @@ import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
 
+class ONNXModelWrapper(nn.Module):
+    def __init__(self, path: str, device: torch.device):
+        super().__init__()
+        try:
+            import onnxruntime as ort
+        except ImportError:
+            raise ImportError("onnxruntime is required to load ONNX models. Please install it.")
+
+        providers = ['CPUExecutionProvider']
+        if device.type == 'cuda':
+             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+             
+        try:
+            self.session = ort.InferenceSession(path, providers=providers)
+        except Exception as e:
+            # Fallback to CPU if CUDA provider fails or other issues
+            print(f"Failed to create ONNX session with requested providers {providers}: {e}. Falling back to CPU.")
+            self.session = ort.InferenceSession(path, providers=['CPUExecutionProvider'])
+
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+        self.device = device
+
+    def forward(self, x):
+        # x is torch tensor. Convert to numpy.
+        # Ensure x is on CPU and numpy-compatible
+        x_np = x.cpu().detach().numpy()
+        
+        # ONNX Runtime expects input as dict
+        inputs = {self.input_name: x_np}
+        
+        # Run inference
+        outputs = self.session.run([self.output_name], inputs)
+        
+        # Convert back to torch tensor
+        return torch.from_numpy(outputs[0]).to(self.device)
+
 class ExecutionService:
     async def create_execution(self, workspace_id: str, request: ExecutionCreate) -> Execution:
         execution = Execution(
@@ -323,6 +360,49 @@ class ExecutionService:
 
         elif fmt == ModelFormat.FULL_MODEL:
             model = torch.load(file_path, map_location=device)
+            model.eval()
+            return model
+
+        elif fmt == ModelFormat.TORCHSCRIPT:
+            model = torch.jit.load(file_path, map_location=device)
+            model.eval()
+            return model
+            
+        elif fmt == ModelFormat.SAFETENSORS:
+            from safetensors.torch import load_file
+            
+            # Safetensors usually requires a model definition just like state_dict
+            # We'll reuse the logic from STATE_DICT for model instantiation (simplified here for brevity, assume definition needed)
+            # In a real app, refactor model instantiation into a helper.
+            
+            # For now, duplicate definition loading for simplicity
+            def_path = model_doc.get("definition_file_path")
+            if def_path and os.path.exists(def_path):
+                 spec = importlib.util.spec_from_file_location("model_def_st", def_path)
+                 module = importlib.util.module_from_spec(spec)
+                 sys.modules["model_def_st"] = module
+                 spec.loader.exec_module(module)
+                 for name, obj in module.__dict__.items():
+                     if isinstance(obj, type) and issubclass(obj, nn.Module) and obj is not nn.Module:
+                         model_class = obj
+                         break
+            
+            if not model_class:
+                 # Fallback similar to state_dict
+                 import torchvision.models as models
+                 model = models.resnet18()
+                 try: model.fc = nn.Linear(model.fc.in_features, 10)
+                 except: pass
+            else:
+                 model = model_class()
+            
+            state_dict = load_file(file_path) # Safetensors load
+            model.load_state_dict(state_dict)
+            model.to(device)
+            return model
+        
+        elif fmt == ModelFormat.ONNX:
+            model = ONNXModelWrapper(file_path, device)
             model.eval()
             return model
             
