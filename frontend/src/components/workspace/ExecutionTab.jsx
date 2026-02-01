@@ -637,7 +637,9 @@ const ExecutionTab = ({ workspace }) => {
                   <div className="flex items-center gap-1">
                     {selectedExecution.status === "completed" && (
                       <button
-                        onClick={() => handleDownloadReport(selectedExecution.id)}
+                        onClick={() =>
+                          handleDownloadReport(selectedExecution.id)
+                        }
                         title="Download PDF Report"
                         className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
                       >
