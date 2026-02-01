@@ -15,6 +15,7 @@ import {
   FiArrowRight,
   FiTerminal,
   FiX,
+  FiFileText,
 } from "react-icons/fi";
 
 const EXECUTION_STEPS = [
@@ -113,9 +114,11 @@ const ExecutionTab = ({ workspace }) => {
   const handleRunExecution = async () => {
     try {
       const payload = {
-        model_id: selectedModel._id,
-        dataset_id: selectedDataset._id,
-        preprocessing_id: selectedPreprocessing?._id,
+        model_id: selectedModel.id || selectedModel._id,
+        dataset_id: selectedDataset.id || selectedDataset._id,
+        preprocessing_id: selectedPreprocessing
+          ? selectedPreprocessing.id || selectedPreprocessing._id
+          : null,
         config: config,
       };
 
@@ -132,11 +135,39 @@ const ExecutionTab = ({ workspace }) => {
       );
 
       if (res.ok) {
+        const newExecution = await res.json();
+        setExecutions((prev) => [newExecution, ...prev]);
         setView("list");
-        fetchExecutions();
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleDownloadReport = async (executionId) => {
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${workspace.id}/executions/${executionId}/report`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `execution_report_${executionId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+      } else {
+        alert("Report not available yet. Please try again later.");
+      }
+    } catch (err) {
+      console.error("Failed to download report:", err);
     }
   };
 
@@ -482,6 +513,11 @@ const ExecutionTab = ({ workspace }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
                     </th>
+                    {!selectedExecution && (
+                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Report
+                      </th>
+                    )}
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -537,6 +573,22 @@ const ExecutionTab = ({ workspace }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(exec.created_at).toLocaleString()}
                       </td>
+                      {!selectedExecution && (
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                          {exec.status === "completed" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadReport(exec.id);
+                              }}
+                              title="Download PDF Report"
+                              className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                            >
+                              <FiFileText size={18} />
+                            </button>
+                          )}
+                        </td>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
                           onClick={(e) => {
@@ -582,12 +634,23 @@ const ExecutionTab = ({ workspace }) => {
                       ID: {selectedExecution.id}
                     </p>
                   </div>
-                  <button
-                    onClick={() => setSelectedExecution(null)}
-                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
-                  >
-                    <FiX size={18} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {selectedExecution.status === "completed" && (
+                      <button
+                        onClick={() => handleDownloadReport(selectedExecution.id)}
+                        title="Download PDF Report"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        <FiFileText size={18} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setSelectedExecution(null)}
+                      className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                      <FiX size={18} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-4 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">

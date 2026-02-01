@@ -29,6 +29,7 @@ from beanie import init_beanie
 from app.models.dataset.dataset import Dataset
 from app.models.workspace.preprocessing import Preprocessing
 from app.models.workspace.execution import Execution
+from app.models.report import Report
 
 
 
@@ -38,7 +39,7 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_to_mongo()
     db = await get_database()
-    await init_beanie(database=db, document_models=[Dataset, Preprocessing, Execution])
+    await init_beanie(database=db, document_models=[Dataset, Preprocessing, Execution, Report])
 
     # Initialize database by creating a system collection
     await db.system_info.insert_one({
