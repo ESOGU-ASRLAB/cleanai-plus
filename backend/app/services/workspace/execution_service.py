@@ -481,13 +481,13 @@ class ExecutionService:
                     pass
 
             # Load Weights
-            state_dict = torch.load(file_path, map_location=device)
+            state_dict = torch.load(file_path, map_location=device, weights_only=False)
             model.load_state_dict(state_dict)
             model.to(device)
             return model
 
         elif fmt == ModelFormat.FULL_MODEL:
-            model = torch.load(file_path, map_location=device)
+            model = torch.load(file_path, map_location=device, weights_only=False)
             model.eval()
             return model
 
