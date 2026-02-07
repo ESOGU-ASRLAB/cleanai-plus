@@ -5,12 +5,18 @@ from app.models.workspace.execution import ExecutionStatus
 from app.models.base import PyObjectId
 
 class ExecutionCreate(BaseModel):
+    model_config = {'protected_namespaces': ()}
     model_id: str
     dataset_id: str
     preprocessing_id: Optional[str] = None
     config: Dict[str, Any] = {}
 
 class ExecutionResponse(BaseModel):
+    model_config = {
+        "protected_namespaces": (),
+        "from_attributes": True,
+        "populate_by_name": True
+    }
     id: PyObjectId
     workspace_id: PyObjectId
     model_id: PyObjectId
@@ -23,9 +29,5 @@ class ExecutionResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-        populate_by_name = True
 
 

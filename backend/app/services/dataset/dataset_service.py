@@ -120,7 +120,13 @@ class DatasetService:
 
         dataset.size_bytes = total_size
         if detected_classes:
-            dataset.classes = list(detected_classes)
+            # Sort classes alphabetically to ensure deterministic order (matching standard ImageFolder behavior)
+            # This order is saved to DB and serves as the ground truth for Label <-> Index mapping.
+            dataset.classes = sorted(list(detected_classes))
+        
+        # Override with schema_info if provided (user explicit mapping)
+        if schema_info and "classes" in schema_info:
+             dataset.classes = schema_info["classes"]
         
         dataset.samples = samples[:5] # Ensure max 5
             

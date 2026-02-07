@@ -107,8 +107,10 @@ class ExecutionService:
             
             print(f"Loading model {model_doc['name']} on {device}")
             
-            # Determine num_classes
-            num_classes = len(dataset_doc.classes) if dataset_doc.classes else 10
+            # Use sorted classes to ensure deterministic index mapping (matching standard ImageFolder behavior)
+            # This fixes issues where dataset.classes might be unsorted due to upload order
+            model_classes = sorted(dataset_doc.classes) if dataset_doc.classes else []
+            num_classes = len(model_classes) if model_classes else 10
             
             model = self._load_model_from_disk(model_doc, device, num_classes)
             model.eval()
@@ -124,13 +126,23 @@ class ExecutionService:
             loss_sum = 0.0
             criterion = nn.CrossEntropyLoss()
             
-            # Map class names to indices if available
-            class_to_idx = {cls_name: i for i, cls_name in enumerate(dataset_doc.classes or [])}
+            # Map class names to indices based on SORTED classes
+            class_to_idx = {cls_name: i for i, cls_name in enumerate(model_classes)}
             
             # Limit samples if requested in config for quick test
             limit = execution.config.get("limit_samples", 0)
             
             print(f"Starting inference...")
+
+            # Debug: Print Class Mapping
+            print(f"Dataset Classes in DB: {dataset_doc.classes}")
+            print(f"Computed Class to Index Map: {class_to_idx}")
+
+            # Extract explicit label mapping from schema_info if available (folder_name -> model_index)
+            label_map = {}
+            if dataset_doc.schema_info and "label_map" in dataset_doc.schema_info:
+                label_map = dataset_doc.schema_info["label_map"]
+                print(f"Using explicit label map from dataset schema: {label_map}")
             
             dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
             processed_count = 0
@@ -138,6 +150,9 @@ class ExecutionService:
             
             with torch.no_grad():
                 for sample_id, image, label_name in dataset_iterator:
+                    if processed_count < 3:
+                        print(f"Sample: {sample_id}, Extracted Label: '{label_name}'")
+
                     try:
                         # Prepare Input
                         if image.mode != 'RGB':
@@ -154,12 +169,24 @@ class ExecutionService:
                         # Calculate Metrics if label is known
                         # If came from pickle, label_name might be actual name
                         
-                        if label_name and label_name in class_to_idx:
-                            label_idx = class_to_idx[label_name]
+                        target_idx = -1
+                        
+                        # Priority 1: Check explicit label map (folder_name -> integer index)
+                        if label_name in label_map:
+                            try:
+                                target_idx = int(label_map[label_name])
+                            except ValueError:
+                                print(f"Invalid index in label_map for {label_name}: {label_map[label_name]}")
+
+                        # Priority 2: Check standard class_to_idx mapping
+                        elif label_name and label_name in class_to_idx:
+                            target_idx = class_to_idx[label_name]
+
+                        if target_idx >= 0:
                             num_outputs = outputs.shape[1]
                             
-                            if label_idx < num_outputs:
-                                target = torch.tensor([label_idx]).to(device)
+                            if target_idx < num_outputs:
+                                target = torch.tensor([target_idx]).to(device)
                                 loss = criterion(outputs, target)
                                 loss_sum += loss.item()
                                 
@@ -168,7 +195,10 @@ class ExecutionService:
                             else:
                                 # Log warning for mismatches to avoid CUDA device-side assert errors
                                 if processed_count < 5: 
-                                    print(f"Warning: Label '{label_name}' (idx {label_idx}) is out of bounds for model output size {num_outputs}. Skipping loss calculation.")
+                                    print(f"Warning: Label '{label_name}' (mapped to idx {target_idx}) is out of bounds for model output size {num_outputs}. Skipping loss calculation.")
+                        else:
+                             # If we can't resolve the label, we can't calculate accuracy/loss for this sample
+                             pass
                         
                         total += 1
                         processed_count += 1

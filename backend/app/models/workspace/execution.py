@@ -12,6 +12,7 @@ class ExecutionStatus(str, Enum):
     FAILED = "failed"
 
 class Execution(Document):
+    model_config = {'protected_namespaces': ()}
     workspace_id: PyObjectId
     model_id: PyObjectId
     dataset_id: PyObjectId
