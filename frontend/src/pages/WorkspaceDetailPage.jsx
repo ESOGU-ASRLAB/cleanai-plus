@@ -6,6 +6,7 @@ import { MainLayout } from "../components/layout";
 import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
+import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
 import {
   FiArrowLeft,
   FiSettings,
@@ -24,6 +25,8 @@ import {
   FiMaximize2,
   FiTerminal,
   FiSave,
+  FiShare2,
+  FiEye,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -36,6 +39,7 @@ const WorkspaceDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [visualizationModel, setVisualizationModel] = useState(null);
 
   // Models state
   const [models, setModels] = useState([]);
@@ -58,6 +62,12 @@ const WorkspaceDetailPage = () => {
       ...prev,
       [datasetId]: !prev[datasetId],
     }));
+  };
+
+  const handleVisualizeModel = (e, model) => {
+    e.stopPropagation();
+    setVisualizationModel(model);
+    setActiveTab("visualization");
   };
 
   const handleModelSelect = async (model) => {
@@ -388,6 +398,19 @@ const WorkspaceDetailPage = () => {
           >
             <FiTerminal className="mr-2" /> Executions
           </button>
+          <button
+            onClick={() => setActiveTab("visualization")}
+            className={`
+              pb-4 px-1 border-b-2 font-medium text-sm flex items-center
+              ${
+                activeTab === "visualization"
+                  ? "border-primary-500 text-primary-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }
+            `}
+          >
+            <FiShare2 className="mr-2" /> Network Visualization
+          </button>
         </nav>
       </div>
 
@@ -647,6 +670,12 @@ const WorkspaceDetailPage = () => {
           </div>
         )}
 
+        {activeTab === "visualization" && (
+          <div>
+             <NetworkVisualizationTab workspace={workspace} initialModel={visualizationModel} />
+          </div>
+        )}
+
         {activeTab === "models" && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -700,20 +729,30 @@ const WorkspaceDetailPage = () => {
                           {model.description || "No description provided."}
                         </p>
 
-                        {model.definition_file_path && (
-                          <div className="mt-4 mb-2">
+                        <div className="mt-4 mb-2 flex flex-wrap gap-3">
                             <button
-                              type="button"
-                              onClick={(e) => handleModelToggle(e, model)}
-                              className="flex items-center text-xs font-medium text-primary-600 hover:text-primary-700 focus:outline-none"
-                            >
-                              <FiCode className="mr-1" />
-                              {selectedModel?._id === model._id
-                                ? "Hide Definition"
-                                : "View Definition"}
+                                type="button"
+                                onClick={(e) => handleVisualizeModel(e, model)}
+                                title="Show network architecture"
+                                className="flex items-center text-xs font-medium text-purple-600 hover:text-purple-700 focus:outline-none"
+                                >
+                                <FiEye className="mr-1" />
+                                Visualize
                             </button>
-                          </div>
-                        )}
+
+                            {model.definition_file_path && (
+                                <button
+                                type="button"
+                                onClick={(e) => handleModelToggle(e, model)}
+                                className="flex items-center text-xs font-medium text-primary-600 hover:text-primary-700 focus:outline-none"
+                                >
+                                <FiCode className="mr-1" />
+                                {selectedModel?._id === model._id
+                                    ? "Hide Definition"
+                                    : "View Definition"}
+                                </button>
+                            )}
+                        </div>
 
                         <div className="flex items-center justify-between text-xs text-gray-500 mt-4 pt-4 border-t border-gray-100">
                           <span>

@@ -151,3 +151,53 @@ async def update_model_definition(
     
     return {"message": "Definition updated successfully"}
 
+@router.get("/{model_id}/structure", response_model=List[dict])
+async def get_model_structure(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
+):
+    """Get the structure/layers of a model."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    layers = await model_service.get_model_structure(model_id)
+    if layers is None:
+        return []
+    
+    return layers
+
+@router.post("/{model_id}/convert", response_model=AIModelInDB)
+async def convert_model(
+    workspace_id: str,
+    model_id: str,
+    target_format: str = "onnx",
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
+):
+    """Convert a model to a different format (e.g. ONNX)."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if target_format.lower() != "onnx":
+        raise HTTPException(status_code=400, detail="Only 'onnx' conversion is currently supported.")
+
+    try:
+        new_model = await model_service.convert_model_to_onnx(model_id, str(current_user.id))
+        return new_model
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
+
