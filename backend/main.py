@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import starlette.requests
 _original_form = starlette.requests.Request.form
 
-async def _custom_form(self, *, max_files=100000, max_fields=100000):
+async def _custom_form(self, *, max_files=300000, max_fields=300000):
     return await _original_form(self, max_files=max_files, max_fields=max_fields)
 
 starlette.requests.Request.form = _custom_form
