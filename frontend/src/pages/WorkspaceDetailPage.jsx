@@ -492,6 +492,21 @@ const WorkspaceDetailPage = () => {
                                         {activity.details?.dataset_name}
                                       </span>
                                     </span>
+                                  ) : activity.action === "execution_started" ? (
+                                    <span>
+                                      Started execution with model{" "}
+                                      <span className="font-medium text-gray-900">
+                                        {activity.details?.model_name}
+                                      </span>
+                                      , dataset{" "}
+                                      <span className="font-medium text-gray-900">
+                                        {activity.details?.dataset_name}
+                                      </span>{" "}
+                                      and preprocessing{" "}
+                                      <span className="font-medium text-gray-900">
+                                        {activity.details?.preprocessing_name}
+                                      </span>
+                                    </span>
                                   ) : (
                                     activity.action
                                   )}

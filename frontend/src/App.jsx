@@ -15,6 +15,7 @@ import NewWorkspacePage from "./pages/NewWorkspacePage";
 import WorkspaceDetailPage from "./pages/WorkspaceDetailPage";
 import NewModelPage from "./pages/NewModelPage";
 import NewDatasetPage from "./pages/NewDatasetPage";
+import Model3DPage from "./pages/Model3DPage";
 
 // Component to handle home route logic
 const HomeRouter = () => {
@@ -100,6 +101,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <NewDatasetPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/workspaces/:id/models/:modelId/3d"
+              element={
+                <ProtectedRoute>
+                  <Model3DPage />
                 </ProtectedRoute>
               }
             />

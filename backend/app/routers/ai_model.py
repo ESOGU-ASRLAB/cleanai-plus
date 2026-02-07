@@ -173,6 +173,28 @@ async def get_model_structure(
     
     return layers
 
+@router.get("/{model_id}", response_model=AIModelInDB)
+async def get_model(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
+):
+    """Get a specific model details."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    model = await model_service.get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    return model
+
 @router.post("/{model_id}/convert", response_model=AIModelInDB)
 async def convert_model(
     workspace_id: str,

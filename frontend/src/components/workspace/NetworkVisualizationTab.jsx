@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { FiCpu, FiLayers, FiActivity, FiArrowRight, FiRefreshCw } from "react-icons/fi";
+import { FiCpu, FiLayers, FiActivity, FiArrowRight, FiRefreshCw, FiBox } from "react-icons/fi";
 
 const NetworkVisualizationTab = ({ workspace, initialModel }) => {
   const { token } = useAuth();
@@ -11,12 +12,15 @@ const NetworkVisualizationTab = ({ workspace, initialModel }) => {
   const [layersLoading, setLayersLoading] = useState(false);
   const [converting, setConverting] = useState(false);
 
+  // Handle both id (from serialized JSON) and _id (from raw Mongo object)
+  const workspaceId = workspace.id || workspace._id;
+
   const fetchModels = async () => {
     // We don't want to set global loading on refresh always, maybe just inside
     // But for simplicity reuse loading state or keep it silent
     try {
       const response = await fetch(
-        `http://localhost:8000/api/workspaces/${workspace.id}/models/`,
+        `http://localhost:8000/api/workspaces/${workspaceId}/models/`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -51,7 +55,7 @@ const NetworkVisualizationTab = ({ workspace, initialModel }) => {
     setConverting(true);
     try {
         const response = await fetch(
-            `http://localhost:8000/api/workspaces/${workspace.id}/models/${selectedModel._id}/convert?target_format=onnx`,
+            `http://localhost:8000/api/workspaces/${workspaceId}/models/${selectedModel._id}/convert?target_format=onnx`,
             {
                 method: "POST",
                 headers: { Authorization: `Bearer ${token}` }
@@ -87,7 +91,7 @@ const NetworkVisualizationTab = ({ workspace, initialModel }) => {
       setLayersLoading(true);
       try {
         const response = await fetch(
-            `http://localhost:8000/api/workspaces/${workspace.id}/models/${selectedModel._id}/structure`,
+            `http://localhost:8000/api/workspaces/${workspaceId}/models/${selectedModel._id}/structure`,
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -174,6 +178,12 @@ const NetworkVisualizationTab = ({ workspace, initialModel }) => {
                 </p>
               </div>
               <div className="flex items-center gap-3">
+                <Link to={`/workspaces/${workspaceId}/models/${selectedModel._id}/3d`}>
+                    <button className="flex items-center px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 transition-colors shadow-sm">
+                        <FiBox className="mr-1.5" />
+                        Show 3D Architecture
+                    </button>
+                </Link>
                 <div className="flex gap-2">
                     <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
                     {selectedModel.format}

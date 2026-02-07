@@ -35,7 +35,7 @@ const Navbar = () => {
               </svg>
             </div>
             <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-700 to-secondary-700">
-              CleanAI
+              CleanAI+
             </span>
           </Link>
 
