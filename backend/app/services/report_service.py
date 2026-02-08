@@ -5,7 +5,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.graphics.shapes import Drawing, Rect, String
+from reportlab.graphics.shapes import Drawing, Rect, String, Polygon
 from beanie import PydanticObjectId
 from app.models.report import Report, ReportType
 from app.models.workspace.execution import Execution
@@ -82,12 +82,25 @@ class ReportService:
         )
 
         # --- Logo & Header Section ---
-        # Drawing a simple logo: Blue Rounded Rect with partial text
         d = Drawing(400, 50)
-        # Gradient effect (simulated with solid color for simplicity in PDF)
-        d.add(Rect(0, 10, 32, 32, rx=8, ry=8, fillColor=colors.HexColor('#2563eb'), strokeColor=None))
-        # Icon inside (Simple 'C' or Check)
-        d.add(String(8, 18, "C", fontName="Helvetica-Bold", fontSize=20, fillColor=colors.white))
+        
+        # Logo Background (Rounded Rect with Gradient approximation color)
+        # Using a color that represents the mix of the gradient (#0284c7 to #9333ea)
+        logo_color = colors.HexColor('#6366f1') 
+        d.add(Rect(0, 10, 32, 32, rx=6, ry=6, fillColor=logo_color, strokeColor=None))
+        
+        # Logo Icon (Lightning Bolt)
+        # Scaled from SVG path M13 10V3L4 14h7v7l9-11h-7z to 32x32 box
+        bolt_points = [
+            17.33, 28.67,  # Start (13, 10)
+            17.33, 38.00,  # Top of vertical line (13, 3)
+            5.33,  23.33,  # Left point (4, 14)
+            14.67, 23.33,  # Horizontal indent (11, 14)
+            14.67, 14.00,  # Bottom point (11, 21)
+            26.67, 28.67   # Right point (20, 10)
+        ]
+        d.add(Polygon(bolt_points, fillColor=colors.white, strokeColor=None))
+        
         # Text "CleanAI+"
         d.add(String(42, 18, "CleanAI+", fontName="Helvetica-Bold", fontSize=24, fillColor=text_color))
         
