@@ -15,6 +15,9 @@ from app.models.ai_model import ModelFormat
 from app.schemas.execution import ExecutionCreate
 from app.database.mongodb import get_database
 
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+
+
 # PyTorch Imports (Delayed to avoid startup overhead if not used, but good for type check)
 import torch
 import torch.nn as nn
@@ -147,6 +150,11 @@ class ExecutionService:
             dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
             processed_count = 0
             error_count = 0
+
+            # Metrics collection
+            all_targets = []
+            all_preds = []
+            all_probs = [] # List of probabilities for Top-K
             
             with torch.no_grad():
                 for sample_id, image, label_name in dataset_iterator:
@@ -164,6 +172,7 @@ class ExecutionService:
                         outputs = model(input_tensor)
                         
                         # Get Prediction
+                        probs = torch.nn.functional.softmax(outputs, dim=1)
                         _, predicted = torch.max(outputs, 1)
                         
                         # Calculate Metrics if label is known
@@ -192,6 +201,11 @@ class ExecutionService:
                                 
                                 if predicted.item() == target.item():
                                     correct += 1
+                                
+                                # Collect for advanced metrics
+                                all_targets.append(target_idx)
+                                all_preds.append(predicted.item())
+                                all_probs.append(probs.cpu().numpy()[0]) # Store 1D array
                             else:
                                 # Log warning for mismatches to avoid CUDA device-side assert errors
                                 if processed_count < 5: 
@@ -217,20 +231,51 @@ class ExecutionService:
             print(f"Processed {total} samples.")
 
             # 5. Calculate Final Metrics
-            accuracy = correct / total if total > 0 else 0.0
-            avg_loss = loss_sum / total if total > 0 else 0.0
+            # Basic
+            accuracy = correct / len(all_targets) if len(all_targets) > 0 else 0.0
+            avg_loss = loss_sum / len(all_targets) if len(all_targets) > 0 else 0.0
+
+            # Advanced Metrics using sklearn
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                all_targets, 
+                all_preds, 
+                average='weighted', 
+                zero_division=0
+            )
+
+            # Top-5 Accuracy
+            top5_acc = 0.0
+            if len(all_targets) > 0 and len(all_probs) > 0:
+                top5_correct = 0
+                for i, target in enumerate(all_targets):
+                    # Get indices of top 5 probabilities
+                    probs = all_probs[i]
+                    # Handle case where classes < 5
+                    k = min(5, len(probs))
+                    top_k_indices = probs.argsort()[-k:][::-1]
+                    if target in top_k_indices:
+                        top5_correct += 1
+                top5_acc = top5_correct / len(all_targets)
 
             # 6. Update Status to COMPLETED
             execution.status = ExecutionStatus.COMPLETED
             execution.completed_at = datetime.utcnow()
+            
+            # Helper to get real dataset size
+            real_total_size = dataset_doc.file_count if dataset_doc.file_count and dataset_doc.file_count > 0 else total
+
             execution.metrics = {
                 "accuracy": round(accuracy, 4),
                 "loss": round(avg_loss, 4),
+                "precision": round(precision, 4),
+                "recall": round(recall, 4),
+                "f1_score": round(f1, 4),
+                "top5_accuracy": round(top5_acc, 4),
                 "processed_samples": total,
-                "dataset_size": total # approximate
+                "dataset_size": real_total_size
             }
             await execution.save()
-            print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}")
+            print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
 
             # 7. Generate Report
             try:

@@ -349,6 +349,34 @@ const ExecutionTab = ({ workspace }) => {
                     Hardware accelerator for the execution.
                   </p>
                 </div>
+
+                {/* Sample Limit */}
+                <div className="col-span-1 md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Process Samples Limit
+                  </label>
+                  <div className="flex rounded-md shadow-sm">
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="All"
+                      value={config.limit_samples || ""}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          limit_samples: e.target.value === "" ? 0 : parseInt(e.target.value),
+                        })
+                      }
+                      className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
+                    />
+                    <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                      / {selectedDataset?.file_count || "unknown"} samples
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Leave empty or 0 to process the entire dataset.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -769,14 +797,14 @@ const ExecutionTab = ({ workspace }) => {
                     </h5>
                     {selectedExecution.metrics &&
                     Object.keys(selectedExecution.metrics).length > 0 ? (
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                         {Object.entries(selectedExecution.metrics).map(
                           ([key, value]) => (
                             <div
                               key={key}
                               className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm"
                             >
-                              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
+                              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 truncate" title={key.replace(/_/g, " ")}>
                                 {key.replace(/_/g, " ")}
                               </p>
                               <p className="text-lg font-bold text-primary-600">
