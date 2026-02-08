@@ -707,6 +707,7 @@ const ExecutionTab = ({ workspace }) => {
                       </p>
                     </div>
 
+
                     {/* Preprocessing Info */}
                     <div className="p-3 bg-gray-50 rounded border border-gray-100">
                       <p className="text-xs text-gray-500 mb-1">
@@ -768,25 +769,42 @@ const ExecutionTab = ({ workspace }) => {
                     <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
                       <FiSettings className="mr-2" /> Configuration
                     </h5>
-                    <div className="bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
-                      <table className="min-w-full divide-y divide-gray-100">
-                        <tbody className="divide-y divide-gray-100">
-                          {Object.entries(selectedExecution.config || {}).map(
-                            ([key, value]) => (
-                              <tr key={key}>
-                                <td className="px-4 py-2 text-xs font-medium text-gray-500 capitalize bg-gray-50/50 w-1/3">
-                                  {key.replace(/_/g, " ")}
-                                </td>
-                                <td className="px-4 py-2 text-xs text-gray-700 bg-white font-mono break-all">
-                                  {typeof value === "object"
+                    <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+                      <div className="grid grid-cols-2 gap-px bg-gray-200">
+                        {/* Dataset Size */}
+                        <div className="bg-white px-3 py-2">
+                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-0.5">
+                            Dataset Size
+                          </p>
+                          <p className="text-xs text-gray-900 font-mono">
+                            {selectedExecution.metrics?.dataset_size ||
+                              "Unknown"}
+                          </p>
+                        </div>
+
+                        {/* Config Items */}
+                        {Object.entries(selectedExecution.config || {}).map(
+                          ([key, value]) => (
+                            <div key={key} className="bg-white px-3 py-2">
+                              <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-0.5">
+                                {key.replace(/_/g, " ")}
+                              </p>
+                              <p
+                                className="text-xs text-gray-900 font-mono truncate"
+                                title={
+                                  typeof value === "object"
                                     ? JSON.stringify(value)
-                                    : String(value)}
-                                </td>
-                              </tr>
-                            ),
-                          )}
-                        </tbody>
-                      </table>
+                                    : String(value)
+                                }
+                              >
+                                {typeof value === "object"
+                                  ? JSON.stringify(value)
+                                  : String(value)}
+                              </p>
+                            </div>
+                          ),
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -798,7 +816,22 @@ const ExecutionTab = ({ workspace }) => {
                     {selectedExecution.metrics &&
                     Object.keys(selectedExecution.metrics).length > 0 ? (
                       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                        {Object.entries(selectedExecution.metrics).map(
+                        {Object.entries(selectedExecution.metrics)
+                          .filter(
+                            ([key]) =>
+                              key !== "dataset_size" &&
+                              key !== "processed_samples",
+                          )
+                          .sort((a, b) => {
+                             const order = ["accuracy", "top5_accuracy", "loss", "precision", "recall", "f1_score"];
+                             const idxA = order.indexOf(a[0]);
+                             const idxB = order.indexOf(b[0]);
+                             if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                             if (idxA !== -1) return -1;
+                             if (idxB !== -1) return 1;
+                             return 0;
+                          })
+                          .map(
                           ([key, value]) => (
                             <div
                               key={key}

@@ -145,61 +145,135 @@ class ReportService:
 
         # 2. Resources & Steps
         elements.append(Paragraph("2. Resources & Configuration", section_style))
-        resource_data = [
-            ["AI Model", model_name],
-            ["Dataset", dataset_name],
-            ["Preprocessing Pipeline", preprocessing_name],
+        
+        # Helper to create label-value pairs for grid cells
+        def make_cell(label, value):
+            return [
+                Paragraph(f"<font color='#1e40af'><b>{label}:</b></font>", styles['Normal']),
+                Paragraph(f"{value}", styles['Normal'])
+            ]
+
+        # Row 1: Model | Dataset
+        row1 = [
+            make_cell("AI Model", model_name),
+            make_cell("Dataset", dataset_name)
         ]
         
-        # Add Preprocessing Steps or Code
+        # Row 2: Pipeline | Batch Size
+        batch_size = execution.config.get("batch_size", "N/A")
+        row2 = [
+            make_cell("Preprocessing", preprocessing_name),
+            make_cell("Batch Size", str(batch_size))
+        ]
+        
+        # Row 3: Device | Samples
+        device = execution.config.get("device", "cpu")
+        limit = execution.config.get("limit_samples", "All")
+        if limit == 0: limit = "All"
+        
+        row3 = [
+            make_cell("Device", str(device)),
+            make_cell("Sample Limit", str(limit))
+        ]
+
+        # Compile grid data
+        resource_grid_data = [row1, row2, row3]
+        
+        # Create Table for Resources (2 main columns, split internally or just 2 big cells)
+        # We can simulate 2 columns where each cell contains the paragraph list
+        t_resources = Table(resource_grid_data, colWidths=[250, 250])
+        t_resources.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, border_color),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ]))
+        elements.append(t_resources)
+        
+        # Pipeline Code / Steps Section
+        elements.append(Spacer(1, 10))
+        
+        pipeline_content = []
         if preprocessing_code:
-            # Escape HTML characters and formatting for code block
-            # Note: Paragraph doesn't support <pre>, so we use <font face=Courier> and replace newlines/spaces
             safe_code = preprocessing_code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             safe_code = safe_code.replace("\n", "<br/>").replace(" ", "&nbsp;")
-            
             code_content = f"""<font name="Courier" size="9">{safe_code}</font>"""
-            resource_data.append(["Pipeline Code", Paragraph(code_content, styles['Normal'])])
-            
+            pipeline_content = [Paragraph("<b>Pipeline Code:</b>", styles['Normal']), Paragraph(code_content, styles['Normal'])]
         elif preprocessing_steps:
              steps_content = "<br/>".join([f"&bull; {step}" for step in preprocessing_steps])
-             resource_data.append(["Pipeline Steps", Paragraph(steps_content, styles['Normal'])])
+             pipeline_content = [Paragraph("<b>Pipeline Steps:</b>", styles['Normal']), Paragraph(steps_content, styles['Normal'])]
         else:
-             resource_data.append(["Pipeline Steps", "No custom steps."])
-
-        # Append Config keys to this table to make it cleaner
-        for k, v in execution.config.items():
-             resource_data.append([f"Config: {k}", str(v)])
+             pipeline_content = [Paragraph("<b>Pipeline Steps:</b>", styles['Normal']), "No custom steps."]
              
-        elements.append(create_modern_table(resource_data, colWidths=[150, 350]))
+        # Full width table for code
+        t_code = Table([pipeline_content], colWidths=[100, 400])
+        t_code.setStyle(TableStyle([
+             ('GRID', (0, 0), (-1, 0), 0.5, border_color),
+             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+             ('BACKGROUND', (0, 0), (0, 0), bg_header),
+        ]))
+        elements.append(t_code)
 
         elements.append(Spacer(1, 15))
 
         # 3. Results & Metrics
         elements.append(Paragraph("3. Performance Results", section_style))
+        
         if execution.metrics:
-            metrics_data = [
-                [k.replace("_", " ").title(), str(v)] 
-                for k, v in execution.metrics.items()
+            grid_data = []
+            row = []
+            
+            # Sort metrics: Accuracy, Top5, Loss, Precision, Recall, F1, then others
+            priority = ["accuracy", "top5_accuracy", "loss", "precision", "recall", "f1_score"]
+            items = [
+                x for x in execution.metrics.items() 
+                if x[0] != "processed_samples"
             ]
-        else:
-            metrics_data = [["Status", "No metrics available yet."]]
+            items.sort(key=lambda x: priority.index(x[0]) if x[0] in priority else 999)
+            
+            # Custom style for centered metrics
+            metric_style_center = ParagraphStyle(
+                'MetricCenter',
+                parent=styles['Normal'],
+                alignment=1 # Center
+            )
 
-        # different style for metrics to make it pop
-        t_metrics = Table(metrics_data, colWidths=[150, 350])
-        t_metrics.setStyle(TableStyle([
-             ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#eff6ff')), # Light blue bg for keys
-             ('TEXTCOLOR', (0, 0), (0, -1), primary_color),
-             ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-             ('FONTSIZE', (0, 0), (-1, -1), 11),
-             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-             ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-             ('TOPPADDING', (0, 0), (-1, -1), 12),
-             ('GRID', (0, 0), (-1, -1), 1, colors.white), # White borders for clean look
-             ('LINEBELOW', (0, 0), (-1, -1), 2, colors.white),
-        ]))
-        elements.append(t_metrics)
+            for k, v in items:
+                label_text = k.replace("_", " ").title()
+                value_text = str(v)
+                
+                # Stack Label and Value
+                cell_content = [
+                    Paragraph(f"<font color='#6b7280' size='9'>{label_text}</font>", metric_style_center),
+                    Spacer(1, 6),
+                    Paragraph(f"<font color='#2563eb' size='14'><b>{value_text}</b></font>", metric_style_center)
+                ]
+                row.append(cell_content)
+                
+                if len(row) == 3:
+                    grid_data.append(row)
+                    row = []
+            
+            # Fill remaining cells
+            if row:
+                while len(row) < 3:
+                    row.append("")
+                grid_data.append(row)
+
+            # Table with 3 equal columns
+            t_metrics = Table(grid_data, colWidths=[150, 150, 150])
+            t_metrics.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, border_color),
+                ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+                ('TOPPADDING', (0, 0), (-1, -1), 15),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+            ]))
+            elements.append(t_metrics)
+        else:
+             elements.append(Paragraph("No metrics available yet.", styles['Normal']))
         
         # Footer Note
         elements.append(Spacer(1, 40))

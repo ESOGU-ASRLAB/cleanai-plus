@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple, Iterator
 import asyncio
+import time
 import os
 import sys
 import pickle
@@ -17,6 +18,17 @@ from app.database.mongodb import get_database
 
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
+# Energy & Compute Consumption Tracking
+try:
+    from codecarbon import EmissionsTracker, OfflineEmissionsTracker
+except ImportError:
+    EmissionsTracker = None
+
+# THOP Import (FLOPs counting)
+try:
+    import thop
+except ImportError:
+    thop = None
 
 # PyTorch Imports (Delayed to avoid startup overhead if not used, but good for type check)
 import torch
@@ -150,6 +162,33 @@ class ExecutionService:
             dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
             processed_count = 0
             error_count = 0
+            
+            # Performance Tracking
+            start_time = 0
+            tracker = None
+            flops_per_sample = 0
+            
+            # Init CodeCarbon Tracker (CPU + GPU support)
+            if EmissionsTracker:
+                try:
+                    # Using OfflineEmissionsTracker if possible to avoid network calls, 
+                    # but explicit country_iso_code might be needed. 
+                    # Falling back to standard tracker relative to system.
+                    # log_level='error' to reduce noise
+                    tracker = EmissionsTracker(
+                        project_name=f"exec_{execution_id}", 
+                        measure_power_secs=1,
+                        log_level='error',
+                        save_to_file=False
+                    )
+                    tracker.start()
+                except Exception as e:
+                    print(f"CodeCarbon Warning: {e}")
+                    tracker = None
+            else:
+                 print("CodeCarbon not installed. Energy metrics will be unavailable.")
+
+            start_time = time.perf_counter()
 
             # Metrics collection
             all_targets = []
@@ -167,6 +206,14 @@ class ExecutionService:
                             image = image.convert('RGB')
                         
                         input_tensor = preprocess(image).unsqueeze(0).to(device)
+                        
+                        # Calculate FLOPs on first sample
+                        if processed_count == 0 and thop and model:
+                            try:
+                                macs, _ = thop.profile(model, inputs=(input_tensor, ), verbose=False)
+                                flops_per_sample = macs * 2
+                            except Exception as thop_e:
+                                print(f"THOP Warning: {thop_e}")
                         
                         # Inference
                         outputs = model(input_tensor)
@@ -228,6 +275,25 @@ class ExecutionService:
                         if error_count > 10:
                             raise Exception(f"Aborting execution: Too many errors ({error_count}). Last error: {err_str}")
             
+            end_time = time.perf_counter()
+            total_time_sec = end_time - start_time
+            
+            total_energy_kwh = 0.0
+            if tracker:
+                try:
+                    emissions = tracker.stop() # Returns emission in kg CO2 eq
+                    # Access detailed data
+                    # CodeCarbon >= 2.0 uses _final_emissions_data or similar internal storage depending on version
+                    # But tracker.stop() usually stops measurement.
+                    # We can get total energy from the tracker instance usually via `tracker.final_emissions_data.energy_consumed`
+                    if hasattr(tracker, 'final_emissions_data') and tracker.final_emissions_data:
+                         total_energy_kwh = tracker.final_emissions_data.energy_consumed
+                except Exception as e:
+                    print(f"Error stopping CodeCarbon tracker: {e}")
+
+            # Convert kWh to Joules: 1 kWh = 3.6e6 J
+            total_energy_j = total_energy_kwh * 3_600_000
+            
             print(f"Processed {total} samples.")
 
             # 5. Calculate Final Metrics
@@ -264,15 +330,31 @@ class ExecutionService:
             # Helper to get real dataset size
             real_total_size = dataset_doc.file_count if dataset_doc.file_count and dataset_doc.file_count > 0 else total
 
+            # Advanced Performance Metrics
+            inf_time_ms = (total_time_sec / total * 1000) if total > 0 else 0
+            energy_per_sample_j = (total_energy_j / total) if total > 0 else 0
+            gflops = flops_per_sample / 1e9
+            gflops_per_joule = (gflops * total / total_energy_j) if total_energy_j > 0 else 0
+            
+            # Format Helper
+            def fmt(val):
+                return "{:.2f}".format(val)
+
             execution.metrics = {
                 "accuracy": round(accuracy, 4),
+                "top5_accuracy": round(top5_acc, 4),
                 "loss": round(avg_loss, 4),
                 "precision": round(precision, 4),
                 "recall": round(recall, 4),
                 "f1_score": round(f1, 4),
-                "top5_accuracy": round(top5_acc, 4),
                 "processed_samples": total,
-                "dataset_size": real_total_size
+                "dataset_size": real_total_size,
+                "total_time_s": fmt(total_time_sec),
+                "time_per_sample_ms": fmt(inf_time_ms),
+                "total_energy_j": fmt(total_energy_j),
+                "energy_per_sample_j": fmt(energy_per_sample_j),
+                "gflops_per_sample": fmt(gflops),
+                "gflops_per_joule": fmt(gflops_per_joule)
             }
             await execution.save()
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
