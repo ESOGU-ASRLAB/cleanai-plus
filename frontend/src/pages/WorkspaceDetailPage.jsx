@@ -30,6 +30,7 @@ import {
   FiShare2,
   FiEye,
   FiCloud,
+  FiPlus,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -594,7 +595,7 @@ const WorkspaceDetailPage = () => {
                   <p className="text-sm font-medium text-gray-500">
                     Executions
                   </p>
-                  <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                  <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                     <FiTerminal size={18} />
                   </div>
                 </div>
@@ -638,11 +639,18 @@ const WorkspaceDetailPage = () => {
         )}
 
         {activeTab === "datasets" && (
-          <div className="animate-fade-in">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-medium text-gray-900">Datasets</h3>
+          <div className="animate-fade-in space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">Datasets</h2>
+                <p className="text-sm text-gray-500">
+                  Manage and explore your datasets
+                </p>
+              </div>
               <Link to={`/workspaces/${id}/datasets/new`}>
-                <Button size="sm">Add Dataset</Button>
+                <Button className="flex items-center">
+                  <FiPlus className="mr-2" /> Add Dataset
+                </Button>
               </Link>
             </div>
 
@@ -760,7 +768,7 @@ const WorkspaceDetailPage = () => {
                 ))}
               </div>
             ) : (
-              <div className="text-center py-12">
+              <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed">
                 <FiDatabase className="mx-auto h-12 w-12 text-gray-400 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900">
                   No datasets yet
@@ -798,11 +806,18 @@ const WorkspaceDetailPage = () => {
         )}
 
         {activeTab === "models" && (
-          <div className="animate-fade-in">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-medium text-gray-900">Models</h3>
+          <div className="animate-fade-in space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">Models</h2>
+                <p className="text-sm text-gray-500">
+                  Create, fine-tune, and manage your models
+                </p>
+              </div>
               <Link to={`/workspaces/${id}/models/new`}>
-                <Button size="sm">Create Model</Button>
+                <Button className="flex items-center">
+                  <FiPlus className="mr-2" /> Create Model
+                </Button>
               </Link>
             </div>
 
@@ -855,7 +870,7 @@ const WorkspaceDetailPage = () => {
                             type="button"
                             onClick={(e) => handleVisualizeModel(e, model)}
                             title="Show network architecture"
-                            className="flex items-center text-xs font-medium text-purple-600 hover:text-purple-700 focus:outline-none"
+                            className="flex items-center text-xs font-medium text-indigo-600 hover:text-indigo-700 focus:outline-none"
                           >
                             <FiEye className="mr-1" />
                             Visualize
@@ -935,13 +950,16 @@ const WorkspaceDetailPage = () => {
                             }}
                           />
                         ) : (
-                          <div className="text-center py-20 text-gray-500 bg-gray-50">
-                            <p>No definition available to display.</p>
-                            {!selectedModel.definition_file_path && (
-                              <p className="text-xs mt-2">
-                                This model does not have a linked python file.
-                              </p>
-                            )}
+                          <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed m-4">
+                            <FiCode className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                            <h3 className="text-lg font-medium text-gray-900">
+                              No definition available
+                            </h3>
+                            <p className="text-gray-500">
+                              {!selectedModel.definition_file_path
+                                ? "This model does not have a linked python file."
+                                : "No definition available to display."}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -950,7 +968,7 @@ const WorkspaceDetailPage = () => {
                 )}
               </div>
             ) : (
-              <div className="text-center py-12">
+              <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed">
                 <FiCpu className="mx-auto h-12 w-12 text-gray-400 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900">
                   No models yet

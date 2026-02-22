@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Stepper, Button, Card, Input } from "../common";
 import { useAuth } from "../../context/AuthContext";
+import { useAlert } from "../../context/AlertContext";
 import {
   FiPlay,
   FiCpu,
@@ -28,6 +29,7 @@ const EXECUTION_STEPS = [
 
 const ExecutionTab = ({ workspace }) => {
   const { token } = useAuth();
+  const { showAlert } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
   const [executions, setExecutions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -164,7 +166,11 @@ const ExecutionTab = ({ workspace }) => {
         window.URL.revokeObjectURL(url);
         a.remove();
       } else {
-        alert("Report not available yet. Please try again later.");
+        showAlert(
+          "Report not available yet. Please try again later.",
+          "Report Error",
+          "error",
+        );
       }
     } catch (err) {
       console.error("Failed to download report:", err);
@@ -218,7 +224,7 @@ const ExecutionTab = ({ workspace }) => {
                 }`}
               >
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="p-2 bg-purple-100 rounded text-purple-600">
+                  <div className="p-2 bg-indigo-100 rounded text-indigo-600">
                     <FiDatabase />
                   </div>
                   <div>
@@ -862,8 +868,11 @@ const ExecutionTab = ({ workspace }) => {
                           ))}
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded border border-gray-100">
-                        No metrics available yet.
+                      <div className="text-center py-8 bg-white rounded-lg border border-gray-200 border-dashed">
+                        <FiActivity className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                        <p className="text-sm text-gray-500">
+                          No metrics available yet
+                        </p>
                       </div>
                     )}
                   </div>

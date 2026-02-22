@@ -14,7 +14,7 @@ const getActivityIcon = (action) => {
   const actionLower = action.toLowerCase();
   if (actionLower.includes("workspace"))
     return (
-      <FiFolder className="mt-1 mr-4 text-purple-500 w-5 h-5 flex-shrink-0" />
+      <FiFolder className="mt-1 mr-4 text-indigo-500 w-5 h-5 flex-shrink-0" />
     );
   if (actionLower.includes("upload") && actionLower.includes("model"))
     return (
@@ -90,9 +90,12 @@ const ActivityItem = ({ activity }) => {
 const ActivityList = ({ activities, onLoadMore, hasMore, loadingMore }) => {
   if (!activities || activities.length === 0) {
     return (
-      <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-        <FiActivity className="mx-auto w-10 h-10 text-gray-400 mb-2" />
-        <p className="text-gray-500 font-medium">No recent activities found.</p>
+      <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed">
+        <FiActivity className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+        <h3 className="text-lg font-medium text-gray-900">
+          No recent activities
+        </h3>
+        <p className="text-gray-500">Your recent actions will appear here.</p>
       </div>
     );
   }

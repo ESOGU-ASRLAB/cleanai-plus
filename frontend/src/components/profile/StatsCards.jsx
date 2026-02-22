@@ -27,7 +27,7 @@ const StatsCards = ({ stats }) => {
         title="Total Workspaces"
         value={stats.workspaces_count || 0}
         icon={<FiFolder className="w-6 h-6" />}
-        color="bg-purple-600"
+        color="bg-indigo-600"
       />
       <StatCard
         title="Completed Executions"

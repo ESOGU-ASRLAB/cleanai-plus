@@ -3,9 +3,11 @@ import { Card, Button } from "../common";
 import { FiFolder, FiPlus, FiTrash2, FiClock } from "react-icons/fi";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { useAlert } from "../../context/AlertContext";
 
 const WorkspaceList = () => {
   const { token } = useAuth();
+  const { showConfirm } = useAlert();
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,7 +37,14 @@ const WorkspaceList = () => {
 
   const handleDelete = async (id, e) => {
     e.preventDefault(); // Prevent link click
-    if (!confirm("Are you sure you want to delete this workspace?")) return;
+
+    const isConfirmed = await showConfirm(
+      "Are you sure you want to delete this workspace? This action cannot be undone.",
+      "Delete Workspace",
+      "error",
+    );
+
+    if (!isConfirmed) return;
 
     try {
       const response = await fetch(
@@ -70,16 +79,16 @@ const WorkspaceList = () => {
 
   if (workspaces.length === 0) {
     return (
-      <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-        <div className="mx-auto h-24 w-24 text-gray-300 mb-4">
-          <FiFolder className="w-full h-full" />
-        </div>
+      <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed">
+        <FiFolder className="mx-auto h-12 w-12 text-gray-400 mb-4" />
         <h3 className="text-lg font-medium text-gray-900">No workspaces yet</h3>
-        <p className="mt-1 text-gray-500 mb-6">
+        <p className="text-gray-500 mb-6">
           Get started by creating your first workspace.
         </p>
         <Link to="/workspaces/new">
-          <Button icon={<FiPlus />}>Create Workspace</Button>
+          <Button className="flex items-center">
+            <FiPlus className="mr-2" /> Create Workspace
+          </Button>
         </Link>
       </div>
     );

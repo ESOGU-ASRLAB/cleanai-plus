@@ -45,9 +45,14 @@ const NewWorkspacePage = () => {
   return (
     <MainLayout>
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">
-          Create New Workspace
-        </h1>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">
+            Create New Workspace
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Set up a new environment for your models and datasets
+          </p>
+        </div>
 
         <Card>
           <form onSubmit={handleSubmit} className="space-y-6">

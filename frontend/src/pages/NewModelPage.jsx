@@ -61,7 +61,7 @@ const MODEL_FORMATS = [
     description:
       "Serialized model that can run independently of Python code. Best for production deployment.",
     usage: "torch.jit.load(path)",
-    color: "border-purple-500 bg-purple-50",
+    color: "border-indigo-500 bg-indigo-50",
     needsDefinition: false,
   },
   {

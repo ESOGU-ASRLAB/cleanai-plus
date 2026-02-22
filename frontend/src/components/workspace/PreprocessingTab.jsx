@@ -15,6 +15,7 @@ import {
 } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
+import { useAlert } from "../../context/AlertContext";
 
 const AVAILABLE_TRANSFORMS = [
   {
@@ -92,6 +93,7 @@ const generatePythonCode = (steps) => {
 const PreprocessingTab = ({ workspace }) => {
   const { token } = useAuth();
   const { warning } = useToast();
+  const { showConfirm } = useAlert();
   const [view, setView] = useState("list"); // "list" | "edit" | "create"
   const [preprocessingList, setPreprocessingList] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
@@ -148,12 +150,14 @@ const PreprocessingTab = ({ workspace }) => {
 
   const handleDelete = async (e, id) => {
     e.stopPropagation();
-    if (
-      !window.confirm(
-        "Are you sure you want to delete this preprocessing definition?",
-      )
-    )
-      return;
+
+    const isConfirmed = await showConfirm(
+      "Are you sure you want to delete this preprocessing definition?",
+      "Delete Preprocessing",
+      "error",
+    );
+
+    if (!isConfirmed) return;
 
     try {
       const response = await fetch(
@@ -264,16 +268,17 @@ const PreprocessingTab = ({ workspace }) => {
 
   if (view === "list") {
     return (
-      <div>
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-medium text-gray-900">
-            Preprocessing Definitions
-          </h3>
-          <Button
-            onClick={handleCreateNew}
-            size="sm"
-            className="flex items-center"
-          >
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-lg font-medium text-gray-900">
+              Preprocessing Definitions
+            </h2>
+            <p className="text-sm text-gray-500">
+              Create and manage data transformation pipelines
+            </p>
+          </div>
+          <Button onClick={handleCreateNew} className="flex items-center">
             <FiPlus className="mr-2" />
             Create Preprocessing
           </Button>
@@ -303,7 +308,7 @@ const PreprocessingTab = ({ workspace }) => {
                           className={`text-xs px-2 py-0.5 rounded-full border ${
                             item.mode === "ui"
                               ? "bg-blue-50 text-blue-700 border-blue-100"
-                              : "bg-purple-50 text-purple-700 border-purple-100"
+                              : "bg-indigo-50 text-indigo-700 border-indigo-100"
                           }`}
                         >
                           {item.mode === "ui"
@@ -333,7 +338,7 @@ const PreprocessingTab = ({ workspace }) => {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
+          <div className="text-center py-12 bg-white rounded-lg border border-gray-200 border-dashed">
             <FiLayers className="mx-auto h-12 w-12 text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-gray-900">
               No preprocessing definitions

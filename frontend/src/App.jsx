@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
+import { AlertProvider } from "./context/AlertContext";
 import RegisterPage from "./pages/RegisterPage";
 import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/LandingPage";
@@ -53,77 +54,79 @@ const GuestOnlyRoute = ({ children }) => {
 function App() {
   return (
     <Router>
-      <ToastProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/" element={<HomeRouter />} />
-            <Route
-              path="/register"
-              element={
-                <GuestOnlyRoute>
-                  <RegisterPage />
-                </GuestOnlyRoute>
-              }
-            />
-            <Route
-              path="/login"
-              element={
-                <GuestOnlyRoute>
-                  <LoginPage />
-                </GuestOnlyRoute>
-              }
-            />
-            <Route
-              path="/workspaces/new"
-              element={
-                <ProtectedRoute>
-                  <NewWorkspacePage />
-                </ProtectedRoute>
-              }
-            />{" "}
-            <Route
-              path="/workspaces/:id"
-              element={
-                <ProtectedRoute>
-                  <WorkspaceDetailPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/workspaces/:id/models/new"
-              element={
-                <ProtectedRoute>
-                  <NewModelPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/workspaces/:id/datasets/new"
-              element={
-                <ProtectedRoute>
-                  <NewDatasetPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <ProfilePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/workspaces/:id/models/:modelId/3d"
-              element={
-                <ProtectedRoute>
-                  <Model3DPage />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-        </AuthProvider>
-      </ToastProvider>
+      <AlertProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/" element={<HomeRouter />} />
+              <Route
+                path="/register"
+                element={
+                  <GuestOnlyRoute>
+                    <RegisterPage />
+                  </GuestOnlyRoute>
+                }
+              />
+              <Route
+                path="/login"
+                element={
+                  <GuestOnlyRoute>
+                    <LoginPage />
+                  </GuestOnlyRoute>
+                }
+              />
+              <Route
+                path="/workspaces/new"
+                element={
+                  <ProtectedRoute>
+                    <NewWorkspacePage />
+                  </ProtectedRoute>
+                }
+              />{" "}
+              <Route
+                path="/workspaces/:id"
+                element={
+                  <ProtectedRoute>
+                    <WorkspaceDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workspaces/:id/models/new"
+                element={
+                  <ProtectedRoute>
+                    <NewModelPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workspaces/:id/datasets/new"
+                element={
+                  <ProtectedRoute>
+                    <NewDatasetPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workspaces/:id/models/:modelId/3d"
+                element={
+                  <ProtectedRoute>
+                    <Model3DPage />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </AuthProvider>
+        </ToastProvider>
+      </AlertProvider>
     </Router>
   );
 }

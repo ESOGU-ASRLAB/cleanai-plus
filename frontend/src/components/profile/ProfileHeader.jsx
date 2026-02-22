@@ -8,9 +8,11 @@ import {
 } from "react-icons/fi";
 import { Card } from "../common";
 import userService from "../../services/userService";
+import { useAlert } from "../../context/AlertContext";
 
 const ProfileHeader = ({ user, refreshUser }) => {
   const fileInputRef = useRef(null);
+  const { showAlert } = useAlert();
   const [uploading, setUploading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -39,7 +41,7 @@ const ProfileHeader = ({ user, refreshUser }) => {
       if (refreshUser) refreshUser();
     } catch (error) {
       console.error("Failed to delete avatar:", error);
-      alert("Failed to remove avatar. Please try again.");
+      showAlert("Failed to remove avatar. Please try again.", "Error", "error");
     } finally {
       setUploading(false);
       setShowDeleteConfirm(false);
@@ -56,7 +58,7 @@ const ProfileHeader = ({ user, refreshUser }) => {
       if (refreshUser) refreshUser();
     } catch (error) {
       console.error("Failed to upload avatar:", error);
-      alert("Failed to upload avatar. Please try again.");
+      showAlert("Failed to upload avatar. Please try again.", "Error", "error");
     } finally {
       setUploading(false);
       // Reset input

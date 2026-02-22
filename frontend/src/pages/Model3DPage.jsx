@@ -228,7 +228,7 @@ const Model3DPage = () => {
                                             <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
                                                 <FiLayers className="mr-1" /> {modelData.format}
                                             </span>
-                                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
                                                 <FiTag className="mr-1" /> v{modelData.version || '1.0'}
                                             </span>
                                         </div>

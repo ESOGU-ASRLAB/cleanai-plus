@@ -51,7 +51,7 @@ const DATASET_TYPES = [
     title: "Tabular Data",
     icon: FiDatabase,
     description: "CSV, Parquet, or Excel files containing structured data.",
-    color: "border-purple-500 bg-purple-50",
+    color: "border-indigo-500 bg-indigo-50",
   },
   {
     id: "other",
@@ -684,10 +684,10 @@ const NewDatasetPage = () => {
                         >
                           <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 font-medium text-sm flex items-center justify-between text-gray-700">
                             <div className="flex items-center">
-                              <FiDatabase className="mr-2 text-purple-500" />
+                              <FiDatabase className="mr-2 text-indigo-500" />
                               <span className="font-semibold">{filename}</span>
                               {data.sheetName && (
-                                <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                                <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
                                   Sheet: {data.sheetName}
                                 </span>
                               )}
@@ -698,7 +698,7 @@ const NewDatasetPage = () => {
                                   Target Column:
                                 </label>
                                 <select
-                                  className="text-xs border-gray-300 rounded shadow-sm focus:border-purple-500 focus:ring-purple-500"
+                                  className="text-xs border-gray-300 rounded shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                                   value={schemaInfo[filename]?.target || ""}
                                   onChange={(e) =>
                                     setSchemaInfo((prev) => ({
@@ -734,11 +734,11 @@ const NewDatasetPage = () => {
                                     return (
                                       <th
                                         key={i}
-                                        className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wider border-r border-gray-100 last:border-0 ${isTarget ? "bg-purple-100 text-purple-700 border-b-2 border-b-purple-500" : "text-gray-500"}`}
+                                        className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wider border-r border-gray-100 last:border-0 ${isTarget ? "bg-indigo-100 text-indigo-700 border-b-2 border-b-indigo-500" : "text-gray-500"}`}
                                       >
                                         {colName}
                                         {isTarget && (
-                                          <span className="ml-1 text-xs bg-purple-200 px-1 rounded">
+                                          <span className="ml-1 text-xs bg-indigo-200 px-1 rounded">
                                             Target
                                           </span>
                                         )}

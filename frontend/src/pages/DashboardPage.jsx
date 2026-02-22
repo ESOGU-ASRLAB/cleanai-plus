@@ -16,7 +16,9 @@ const DashboardPage = () => {
           </p>
         </div>
         <Link to="/workspaces/new">
-          <Button icon={<FiPlus />}>New Workspace</Button>
+          <Button className="flex items-center">
+            <FiPlus className="mr-2" /> New Workspace
+          </Button>
         </Link>
       </div>
 
