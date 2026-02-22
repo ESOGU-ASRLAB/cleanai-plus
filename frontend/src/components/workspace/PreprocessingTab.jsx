@@ -105,6 +105,7 @@ const PreprocessingTab = ({ workspace }) => {
   const [code, setCode] = useState("");
   const [steps, setSteps] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   useEffect(() => {
     fetchList();
@@ -247,23 +248,67 @@ const PreprocessingTab = ({ workspace }) => {
   };
 
   // Drag and Drop handlers
-  const handleDragStart = (e, index) => {
-    e.dataTransfer.setData("text/plain", index);
+  const handleLibraryDragStart = (e, transform) => {
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({ type: "library", transform }),
+    );
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
+  const handleStepDragStart = (e, index) => {
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({ type: "step", index }),
+    );
   };
 
-  const handleDrop = (e, index) => {
+  const handleDragOver = (e, index) => {
     e.preventDefault();
-    const draggedIndex = parseInt(e.dataTransfer.getData("text/plain"));
-    if (draggedIndex === index) return;
+    e.stopPropagation();
+    setDragOverIndex(index !== undefined ? index : steps.length);
+  };
 
-    const newSteps = [...steps];
-    const [draggedItem] = newSteps.splice(draggedIndex, 1);
-    newSteps.splice(index, 0, draggedItem);
-    setSteps(newSteps);
+  const handleDragEnd = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverIndex(null);
+
+    try {
+      const dataString = e.dataTransfer.getData("application/json");
+      if (!dataString) return;
+
+      const data = JSON.parse(dataString);
+
+      if (data.type === "library") {
+        const newSteps = [...steps];
+        const newStep = { ...data.transform, id: Date.now() };
+        if (dropIndex !== undefined) {
+          newSteps.splice(dropIndex, 0, newStep);
+        } else {
+          newSteps.push(newStep);
+        }
+        setSteps(newSteps);
+      } else if (data.type === "step") {
+        const draggedIndex = data.index;
+        if (dropIndex === undefined) {
+          const newSteps = [...steps];
+          const [draggedItem] = newSteps.splice(draggedIndex, 1);
+          newSteps.push(draggedItem);
+          setSteps(newSteps);
+        } else if (draggedIndex !== dropIndex) {
+          const newSteps = [...steps];
+          const [draggedItem] = newSteps.splice(draggedIndex, 1);
+          newSteps.splice(dropIndex, 0, draggedItem);
+          setSteps(newSteps);
+        }
+      }
+    } catch (err) {
+      console.error("Drop error:", err);
+    }
   };
 
   if (view === "list") {
@@ -450,7 +495,10 @@ const PreprocessingTab = ({ workspace }) => {
                 {AVAILABLE_TRANSFORMS.map((transform, idx) => (
                   <div
                     key={idx}
-                    className="p-3 bg-white rounded border border-gray-200 hover:border-primary-300 hover:shadow-sm transition-all group"
+                    draggable
+                    onDragStart={(e) => handleLibraryDragStart(e, transform)}
+                    onDragEnd={handleDragEnd}
+                    className="p-3 bg-white rounded border border-gray-200 hover:border-primary-300 hover:shadow-sm transition-all group cursor-grab active:cursor-grabbing"
                   >
                     <div className="flex justify-between items-center mb-1">
                       <span className="font-medium text-primary-700">
@@ -473,88 +521,104 @@ const PreprocessingTab = ({ workspace }) => {
             </div>
 
             {/* Pipeline Panel */}
-            <div className="flex-1 bg-white rounded-lg p-4 border border-gray-200 flex flex-col shadow-sm">
+            <div
+              className="flex-1 bg-white rounded-lg p-4 border border-gray-200 flex flex-col shadow-sm"
+              onDragOver={(e) => handleDragOver(e)}
+              onDrop={(e) => handleDrop(e)}
+            >
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Pipeline Steps ({steps.length})
               </h3>
               {steps.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
-                  <FiLayers className="w-12 h-12 mb-2 opacity-50" />
-                  <p>Add transforms from the library</p>
+                <div
+                  className={`flex-1 flex flex-col items-center justify-center text-gray-400 border-2 border-dashed rounded-lg transition-colors ${dragOverIndex !== null ? "border-primary-400 bg-primary-50" : "border-gray-200 bg-gray-50"}`}
+                >
+                  <FiLayers
+                    className={`w-12 h-12 mb-2 ${dragOverIndex !== null ? "text-primary-400 opacity-100" : "opacity-50"}`}
+                  />
+                  <p>Drag and drop transforms here</p>
                 </div>
               ) : (
                 <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar p-1">
                   {steps.map((step, idx) => (
-                    <div
-                      key={step.id || idx}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, idx)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, idx)}
-                      className="bg-white rounded-md border border-gray-200 p-4 shadow-sm cursor-move relative hover:border-primary-300 transition-colors"
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-3">
-                          <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs font-mono border border-gray-200">
-                            {idx + 1}
-                          </span>
-                          <span className="font-medium text-gray-800 text-lg">
-                            {step.type}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => moveStep(idx, -1)}
-                            disabled={idx === 0}
-                            className={`p-1 rounded ${
-                              idx === 0
-                                ? "text-gray-300 cursor-not-allowed"
-                                : "text-gray-400 hover:text-primary-600 hover:bg-primary-50"
-                            }`}
-                          >
-                            <FiArrowUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => moveStep(idx, 1)}
-                            disabled={idx === steps.length - 1}
-                            className={`p-1 rounded ${
-                              idx === steps.length - 1
-                                ? "text-gray-300 cursor-not-allowed"
-                                : "text-gray-400 hover:text-primary-600 hover:bg-primary-50"
-                            }`}
-                          >
-                            <FiArrowDown className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => removeStep(idx)}
-                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-2 transition-colors"
-                            title="Remove step"
-                          >
-                            <FiTrash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Parameters Form */}
-                      <div className="grid grid-cols-2 gap-4">
-                        {Object.entries(step.params).map(([key, val]) => (
-                          <div key={key} className="flex flex-col gap-1">
-                            <label className="text-xs text-gray-500 font-medium">
-                              {key}
-                            </label>
-                            <input
-                              type="text"
-                              value={val}
-                              onChange={(e) =>
-                                updateStepParam(idx, key, e.target.value)
-                              }
-                              className="bg-gray-50 border border-gray-200 text-sm text-gray-700 rounded px-2 py-1.5 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all placeholder-gray-400"
-                            />
+                    <React.Fragment key={step.id || idx}>
+                      {dragOverIndex === idx && (
+                        <div className="h-1.5 bg-primary-400 rounded-full shadow-sm border border-primary-200 transition-all"></div>
+                      )}
+                      <div
+                        draggable
+                        onDragStart={(e) => handleStepDragStart(e, idx)}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDrop={(e) => handleDrop(e, idx)}
+                        className="bg-white rounded-md border border-gray-200 p-4 shadow-sm cursor-move relative hover:border-primary-300 transition-colors"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs font-mono border border-gray-200">
+                              {idx + 1}
+                            </span>
+                            <span className="font-medium text-gray-800 text-lg">
+                              {step.type}
+                            </span>
                           </div>
-                        ))}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => moveStep(idx, -1)}
+                              disabled={idx === 0}
+                              className={`p-1 rounded ${
+                                idx === 0
+                                  ? "text-gray-300 cursor-not-allowed"
+                                  : "text-gray-400 hover:text-primary-600 hover:bg-primary-50"
+                              }`}
+                            >
+                              <FiArrowUp className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => moveStep(idx, 1)}
+                              disabled={idx === steps.length - 1}
+                              className={`p-1 rounded ${
+                                idx === steps.length - 1
+                                  ? "text-gray-300 cursor-not-allowed"
+                                  : "text-gray-400 hover:text-primary-600 hover:bg-primary-50"
+                              }`}
+                            >
+                              <FiArrowDown className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => removeStep(idx)}
+                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-2 transition-colors"
+                              title="Remove step"
+                            >
+                              <FiTrash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Parameters Form */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {Object.entries(step.params).map(([key, val]) => (
+                            <div key={key} className="flex flex-col gap-1">
+                              <label className="text-xs text-gray-500 font-medium">
+                                {key}
+                              </label>
+                              <input
+                                type="text"
+                                value={val}
+                                onChange={(e) =>
+                                  updateStepParam(idx, key, e.target.value)
+                                }
+                                className="bg-gray-50 border border-gray-200 text-sm text-gray-700 rounded px-2 py-1.5 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all placeholder-gray-400"
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   ))}
+                  {dragOverIndex === steps.length && steps.length > 0 && (
+                    <div className="h-1.5 bg-primary-400 rounded-full shadow-sm border border-primary-200 transition-all mt-3"></div>
+                  )}
                 </div>
               )}
             </div>
