@@ -6,6 +6,13 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     full_name: str = Field(..., min_length=1, max_length=100)
 
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=5, max_length=5)
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
 
 class LoginRequest(BaseModel):
     email: EmailStr

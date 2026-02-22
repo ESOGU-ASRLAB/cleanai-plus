@@ -9,7 +9,7 @@ import { FiFolder, FiLock, FiGlobe } from "react-icons/fi";
 const NewWorkspacePage = () => {
   const navigate = useNavigate();
   const { token } = useAuth();
-  const { error } = useToast();
+  const { error, success } = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -34,6 +34,7 @@ const NewWorkspacePage = () => {
       if (!response.ok) throw new Error("Failed to create workspace");
 
       const data = await response.json();
+      success("Workspace created successfully!");
       navigate("/"); // Go back to dashboard
     } catch (err) {
       error(err.message);

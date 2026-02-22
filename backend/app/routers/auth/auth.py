@@ -3,7 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import timedelta
 
 from app.database.mongodb import get_database
-from app.schemas.auth import RegisterRequest, UserResponse, LoginRequest, TokenResponse
+from app.schemas.auth import RegisterRequest, UserResponse, LoginRequest, TokenResponse, VerifyEmailRequest, ResendVerificationRequest
 from app.services.auth import AuthService
 from app.models.auth import UserCreate
 from app.utils.security import create_access_token
@@ -83,3 +83,47 @@ async def login(
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/verify-email", status_code=status.HTTP_200_OK)
+async def verify_email(
+    request: VerifyEmailRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Verify user's email with the 5-digit code.
+    """
+    try:
+        await auth_service.verify_email(request.email, request.code)
+        return {"message": "Email verified successfully"}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while verifying email"
+        )
+
+@router.post("/resend-verification", status_code=status.HTTP_200_OK)
+async def resend_verification(
+    request: ResendVerificationRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Resend verification code to user's email.
+    """
+    try:
+        await auth_service.resend_verification_code(request.email)
+        return {"message": "Verification code sent successfully"}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while resending verification code"
+        )

@@ -1,6 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FiUser, FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import {
+  FiUser,
+  FiMail,
+  FiLock,
+  FiEye,
+  FiEyeOff,
+  FiCheckCircle,
+} from "react-icons/fi";
 import { Button, Input, Card } from "../common";
 
 const RegisterForm = () => {
@@ -9,6 +16,10 @@ const RegisterForm = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [step, setStep] = useState(1); // 1: Register, 2: Verify
+  const [verificationCode, setVerificationCode] = useState("");
+  const [timeLeft, setTimeLeft] = useState(180); // 3 minutes
+  const endTimeRef = useRef(null);
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -16,6 +27,53 @@ const RegisterForm = () => {
     password: "",
     confirmPassword: "",
   });
+
+  useEffect(() => {
+    if (step !== 2) return;
+
+    // Initialize end time if not set
+    if (!endTimeRef.current) {
+      const storedEndTime = localStorage.getItem("registerVerifyEndTime");
+      if (storedEndTime) {
+        const parsedEndTime = parseInt(storedEndTime, 10);
+        if (parsedEndTime > Date.now()) {
+          endTimeRef.current = parsedEndTime;
+          setTimeLeft(Math.floor((parsedEndTime - Date.now()) / 1000));
+        } else {
+          localStorage.removeItem("registerVerifyEndTime");
+          const newEndTime = Date.now() + 180 * 1000;
+          endTimeRef.current = newEndTime;
+          localStorage.setItem("registerVerifyEndTime", newEndTime.toString());
+        }
+      } else {
+        const newEndTime = Date.now() + 180 * 1000;
+        endTimeRef.current = newEndTime;
+        localStorage.setItem("registerVerifyEndTime", newEndTime.toString());
+      }
+    }
+
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const remaining = Math.max(
+        0,
+        Math.floor((endTimeRef.current - now) / 1000),
+      );
+
+      setTimeLeft(remaining);
+
+      if (remaining === 0) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [step]);
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -61,7 +119,6 @@ const RegisterForm = () => {
     setLoading(true);
 
     try {
-      // TODO: API call to backend
       const response = await fetch("http://localhost:8000/api/auth/register", {
         method: "POST",
         headers: {
@@ -80,14 +137,166 @@ const RegisterForm = () => {
         throw new Error(data.detail || "Registration failed");
       }
 
-      // Success - redirect to login or dashboard
-      navigate("/login");
+      // Success - move to verification step
+      setStep(2);
+      const newEndTime = Date.now() + 180 * 1000;
+      endTimeRef.current = newEndTime;
+      localStorage.setItem("registerVerifyEndTime", newEndTime.toString());
+      setTimeLeft(180);
     } catch (error) {
       setErrors({ submit: error.message });
     } finally {
       setLoading(false);
     }
   };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (verificationCode.length !== 5) {
+      setErrors({ verify: "Code must be 5 digits" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(
+        "http://localhost:8000/api/auth/verify-email",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: formData.email,
+            code: verificationCode,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Verification failed");
+      }
+
+      // Success - redirect to login
+      localStorage.removeItem("registerVerifyEndTime");
+      navigate("/login", {
+        state: { message: "Account verified successfully. Please login." },
+      });
+    } catch (error) {
+      setErrors({ verify: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        "http://localhost:8000/api/auth/resend-verification",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: formData.email,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to resend code");
+      }
+
+      const newEndTime = Date.now() + 180 * 1000;
+      endTimeRef.current = newEndTime;
+      localStorage.setItem("registerVerifyEndTime", newEndTime.toString());
+      setTimeLeft(180);
+      setErrors({ verify: "" });
+    } catch (error) {
+      setErrors({ verify: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (step === 2) {
+    return (
+      <Card className="animate-slide-up">
+        <div className="text-center mb-6">
+          <div className="mx-auto w-12 h-12 bg-primary-100 text-primary-600 rounded-full flex items-center justify-center mb-4">
+            <FiMail size={24} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">
+            Verify your email
+          </h2>
+          <p className="text-gray-600 mt-2">
+            We've sent a 5-digit code to{" "}
+            <span className="font-medium text-gray-900">{formData.email}</span>
+          </p>
+        </div>
+
+        <form onSubmit={handleVerify} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Verification Code
+            </label>
+            <input
+              type="text"
+              maxLength={5}
+              value={verificationCode}
+              onChange={(e) =>
+                setVerificationCode(e.target.value.replace(/\D/g, ""))
+              }
+              className="w-full text-center text-2xl tracking-[0.5em] font-bold py-3 px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
+              placeholder="00000"
+            />
+            {errors.verify && (
+              <p className="mt-1 text-sm text-red-600">{errors.verify}</p>
+            )}
+          </div>
+
+          <Button
+            type="submit"
+            variant="primary"
+            className="w-full"
+            isLoading={loading}
+            disabled={verificationCode.length !== 5}
+          >
+            Verify Account
+          </Button>
+
+          <div className="text-center mt-4">
+            {timeLeft > 0 ? (
+              <p className="text-sm text-gray-600">
+                Code expires in{" "}
+                <span className="font-medium text-primary-600">
+                  {formatTime(timeLeft)}
+                </span>
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-red-600">Code has expired</p>
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={loading}
+                  className="text-sm font-medium text-primary-600 hover:text-primary-500"
+                >
+                  Resend Code
+                </button>
+              </div>
+            )}
+          </div>
+        </form>
+      </Card>
+    );
+  }
 
   return (
     <Card className="animate-slide-up">

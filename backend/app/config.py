@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    # Email Settings
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    sender_email: str = ""
+    sender_password: str = ""
+    frontend_url: str = "http://localhost:5173"
+
     class Config:
         env_file = ".env"
         case_sensitive = False

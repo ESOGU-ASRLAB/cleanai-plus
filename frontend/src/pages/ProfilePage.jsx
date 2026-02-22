@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { MainLayout } from "../components/layout";
+import { Card } from "../components/common";
 import ProfileHeader from "../components/profile/ProfileHeader";
 import StatsCards from "../components/profile/StatsCards";
 import ActivityList from "../components/profile/ActivityList";
 import ProfileSettings from "../components/profile/ProfileSettings";
+import ProfileVerification from "../components/profile/ProfileVerification";
 import userService from "../services/userService";
 import { useAuth } from "../context/AuthContext";
 import { useAlert } from "../context/AlertContext";
@@ -12,6 +15,7 @@ import { FiUser, FiSettings, FiAlertTriangle } from "react-icons/fi";
 const ProfilePage = () => {
   const { token, logout, fetchUser } = useAuth();
   const { showAlert } = useAlert();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [stats, setStats] = useState(null);
   const [activities, setActivities] = useState([]);
@@ -20,6 +24,13 @@ const ProfilePage = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMoreActivities, setHasMoreActivities] = useState(true);
   const ACTIVITIES_PER_PAGE = 5;
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    if (searchParams.get("verify") === "true") {
+      setActiveTab("settings");
+    }
+  }, [location]);
 
   const fetchProfileData = async () => {
     try {
@@ -115,10 +126,16 @@ const ProfilePage = () => {
               />
             </div>
           ) : (
-            <div>
+            <div className="space-y-6">
+              {!user?.is_verified && (
+                <ProfileVerification
+                  user={user}
+                  refreshUser={fetchProfileData}
+                />
+              )}
               <ProfileSettings user={user} refreshUser={fetchProfileData} />
 
-              <div className="mt-8 border-t border-accent-100 pt-6">
+              <Card className="p-6 border-accent-200">
                 <h3 className="text-lg font-medium text-accent-600 mb-2 flex items-center">
                   <FiAlertTriangle className="mr-2" /> Danger Zone
                 </h3>
@@ -138,7 +155,7 @@ const ProfilePage = () => {
                 >
                   Delete Account
                 </button>
-              </div>
+              </Card>
             </div>
           )}
         </div>

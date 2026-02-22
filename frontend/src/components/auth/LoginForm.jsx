@@ -1,15 +1,25 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FiMail, FiLock, FiEye, FiEyeOff } from "react-icons/fi";
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { FiMail, FiLock, FiEye, FiEyeOff, FiCheckCircle } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import { Button, Input, Card } from "../common";
 
 const LoginForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    if (location.state?.message) {
+      setSuccessMessage(location.state.message);
+      // Clear the state so it doesn't show again on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -78,6 +88,16 @@ const LoginForm = () => {
 
   return (
     <Card className="animate-slide-up">
+      {successMessage && (
+        <div className="mb-6 bg-green-50 border-l-4 border-green-400 p-4 rounded-md flex items-start">
+          <div className="flex-shrink-0">
+            <FiCheckCircle className="h-5 w-5 text-green-400" />
+          </div>
+          <div className="ml-3">
+            <p className="text-sm text-green-700">{successMessage}</p>
+          </div>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Email */}
         <Input

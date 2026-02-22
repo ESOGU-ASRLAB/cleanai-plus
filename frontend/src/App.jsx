@@ -10,6 +10,7 @@ import { ToastProvider } from "./context/ToastContext";
 import { AlertProvider } from "./context/AlertContext";
 import RegisterPage from "./pages/RegisterPage";
 import LoginPage from "./pages/LoginPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import LandingPage from "./pages/LandingPage";
 import DashboardPage from "./pages/DashboardPage";
 import NewWorkspacePage from "./pages/NewWorkspacePage";
@@ -18,6 +19,7 @@ import NewModelPage from "./pages/NewModelPage";
 import NewDatasetPage from "./pages/NewDatasetPage";
 import Model3DPage from "./pages/Model3DPage";
 import ProfilePage from "./pages/ProfilePage";
+import AnimatedRoutes from "./components/layout/AnimatedRoutes";
 
 // Component to handle home route logic
 const HomeRouter = () => {
@@ -57,7 +59,7 @@ function App() {
       <AlertProvider>
         <ToastProvider>
           <AuthProvider>
-            <Routes>
+            <AnimatedRoutes>
               <Route path="/" element={<HomeRouter />} />
               <Route
                 path="/register"
@@ -72,6 +74,14 @@ function App() {
                 element={
                   <GuestOnlyRoute>
                     <LoginPage />
+                  </GuestOnlyRoute>
+                }
+              />
+              <Route
+                path="/verify-email"
+                element={
+                  <GuestOnlyRoute>
+                    <VerifyEmailPage />
                   </GuestOnlyRoute>
                 }
               />
@@ -123,7 +133,7 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-            </Routes>
+            </AnimatedRoutes>
           </AuthProvider>
         </ToastProvider>
       </AlertProvider>
