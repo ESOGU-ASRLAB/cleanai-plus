@@ -9,12 +9,12 @@ const AnimatedRoutes = ({ children }) => {
   useEffect(() => {
     if (location.pathname !== displayLocation.pathname) {
       setTransitionStage("fadeOut");
-      
+
       const timeout = setTimeout(() => {
         setDisplayLocation(location);
         setTransitionStage("fadeIn");
       }, 300); // Match this with the CSS transition duration
-      
+
       return () => clearTimeout(timeout);
     }
   }, [location, displayLocation]);
@@ -27,9 +27,7 @@ const AnimatedRoutes = ({ children }) => {
           : "opacity-100 translate-y-0"
       }`}
     >
-      <Routes location={displayLocation}>
-        {children}
-      </Routes>
+      <Routes location={displayLocation}>{children}</Routes>
     </div>
   );
 };
