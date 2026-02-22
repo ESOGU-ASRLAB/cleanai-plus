@@ -50,3 +50,45 @@ class WorkspaceService:
             "owner_id": ObjectId(user_id)
         })
         return result.deleted_count > 0
+
+    async def get_workspace_stats(self, workspace_id: str) -> dict:
+        """Get aggregate statistics for a workspace."""
+        if not ObjectId.is_valid(workspace_id):
+            return {"models": 0, "datasets": 0, "executions": 0, "co2_saved": 0.0}
+            
+        oid = ObjectId(workspace_id)
+        
+        # Count models
+        models_count = await self.db.ai_models.count_documents({"workspace_id": oid})
+        
+        # Count datasets
+        datasets_count = await self.db.datasets.count_documents({"workspace_id": oid})
+        
+        # Count executions and calculate CO2
+        executions_count = 0
+        total_co2 = 0.0
+        
+        pipeline = [
+            {"$match": {"workspace_id": oid}},
+            {"$group": {
+                "_id": None, 
+                "count": {"$sum": 1},
+                "total_emissions": {"$sum": "$metrics.emissions"} 
+            }}
+        ]
+        
+        try:
+            results = await self.db["Execution"].aggregate(pipeline).to_list(length=1)
+            if results:
+                executions_count = results[0].get("count", 0)
+                total_co2 = results[0].get("total_emissions", 0) or 0.0
+        except:
+            # Fallback if aggregation fails
+            executions_count = await self.db.Execution.count_documents({"workspace_id": oid})
+        
+        return {
+            "models": models_count,
+            "datasets": datasets_count,
+            "executions": executions_count,
+            "co2_saved": total_co2
+        }

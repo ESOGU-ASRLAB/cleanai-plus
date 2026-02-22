@@ -7,6 +7,7 @@ import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
 import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
+import ActivityList from "../components/profile/ActivityList";
 import {
   FiArrowLeft,
   FiSettings,
@@ -27,6 +28,7 @@ import {
   FiSave,
   FiShare2,
   FiEye,
+  FiCloud,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -56,6 +58,18 @@ const WorkspaceDetailPage = () => {
   // Activities state
   const [activities, setActivities] = useState([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [loadingMoreActivities, setLoadingMoreActivities] = useState(false);
+  const [hasMoreActivities, setHasMoreActivities] = useState(true);
+  const ACTIVITIES_PER_PAGE = 5;
+
+  // Stats state
+  const [stats, setStats] = useState({
+    models: 0,
+    datasets: 0,
+    executions: 0,
+    co2_saved: 0,
+  });
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const toggleSamples = (datasetId) => {
     setExpandedSamples((prev) => ({
@@ -253,7 +267,7 @@ const WorkspaceDetailPage = () => {
       setActivitiesLoading(true);
       try {
         const response = await fetch(
-          `http://localhost:8000/api/workspaces/${id}/activities`,
+          `http://localhost:8000/api/workspaces/${id}/activities?limit=${ACTIVITIES_PER_PAGE}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -264,6 +278,7 @@ const WorkspaceDetailPage = () => {
         if (response.ok) {
           const data = await response.json();
           setActivities(data);
+          setHasMoreActivities(data.length === ACTIVITIES_PER_PAGE);
         }
       } catch (err) {
         console.error("Failed to fetch activities:", err);
@@ -276,6 +291,61 @@ const WorkspaceDetailPage = () => {
       fetchActivities();
     }
   }, [activeTab, id, token]);
+
+  // Fetch stats when switching to overview tab
+  useEffect(() => {
+    const fetchStats = async () => {
+      setStatsLoading(true);
+      try {
+        const response = await fetch(
+          `http://localhost:8000/api/workspaces/${id}/stats`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          setStats(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch stats:", err);
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+
+    if (activeTab === "overview" && id && token) {
+      fetchStats();
+    }
+  }, [activeTab, id, token]);
+
+  const loadMoreActivities = async () => {
+    try {
+      setLoadingMoreActivities(true);
+      const nextLimit = activities.length + ACTIVITIES_PER_PAGE;
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}/activities?limit=${nextLimit}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setActivities(data);
+        setHasMoreActivities(data.length === nextLimit);
+      }
+    } catch (err) {
+      console.error("Failed to load more activities:", err);
+    } finally {
+      setLoadingMoreActivities(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -320,8 +390,12 @@ const WorkspaceDetailPage = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
               {workspace.name}
             </h1>
-            <p className="text-gray-600">
+            <p className="text-gray-600 mb-2">
               {workspace.description || "No description provided."}
+            </p>
+            <p className="text-xs text-gray-400 flex items-center">
+              <FiActivity className="mr-1" /> Created on{" "}
+              {new Date(workspace.created_at).toLocaleDateString()}
             </p>
           </div>
           <Button variant="secondary" icon={<FiSettings />}>
@@ -415,127 +489,94 @@ const WorkspaceDetailPage = () => {
       </div>
 
       {/* Content Area */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 min-h-[400px]">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 min-h-[400px] transition-all duration-300 ease-in-out">
         {activeTab === "overview" && (
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Workspace Overview
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Created At</p>
-                <p className="font-medium">
-                  {new Date(workspace.created_at).toLocaleDateString()}
+          <div className="animate-fade-in">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-gray-900">
+                Workspace Overview
+              </h3>
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 border border-green-200">
+                <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                Active
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-500">Models</p>
+                  <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                    <FiCpu size={18} />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {statsLoading ? "..." : stats.models}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Owner ID</p>
-                <p className="font-medium truncate" title={workspace.owner_id}>
-                  {workspace.owner_id}
+
+              <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-500">Datasets</p>
+                  <div className="p-2 bg-green-50 rounded-lg text-green-600">
+                    <FiDatabase size={18} />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {statsLoading ? "..." : stats.datasets}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Status</p>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Active
-                </span>
+
+              <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-500">
+                    Executions
+                  </p>
+                  <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                    <FiTerminal size={18} />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">
+                  {statsLoading ? "..." : stats.executions}
+                </p>
+              </div>
+
+              <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-gray-500">
+                    CO2 Emissions (kg)
+                  </p>
+                  <div className="p-2 bg-green-50 rounded-lg text-green-600">
+                    <FiCloud size={18} />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900 truncate">
+                  {statsLoading
+                    ? "..."
+                    : Number(stats.co2_saved || 0).toFixed(2)}
+                </p>
               </div>
             </div>
 
             <div className="border-t border-gray-200 pt-8">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Recent Activity
-              </h3>
               {activitiesLoading ? (
                 <div className="flex justify-center py-4">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
                 </div>
-              ) : activities.length > 0 ? (
-                <div className="flow-root">
-                  <ul className="-mb-8">
-                    {activities.map((activity, activityIdx) => (
-                      <li key={activity.id || activity._id || activityIdx}>
-                        <div className="relative pb-8">
-                          {activityIdx !== activities.length - 1 ? (
-                            <span
-                              className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
-                              aria-hidden="true"
-                            />
-                          ) : null}
-                          <div className="relative flex space-x-3">
-                            <div>
-                              <span className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center ring-8 ring-white">
-                                <FiActivity
-                                  className="h-5 w-5 text-blue-600"
-                                  aria-hidden="true"
-                                />
-                              </span>
-                            </div>
-                            <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
-                              <div>
-                                <p className="text-sm text-gray-500">
-                                  {activity.action === "workspace_created" ? (
-                                    <span className="font-medium text-gray-900">
-                                      Workspace created
-                                    </span>
-                                  ) : activity.action === "model_uploaded" ? (
-                                    <span>
-                                      Uploaded model{" "}
-                                      <span className="font-medium text-gray-900">
-                                        {activity.details?.model_name}
-                                      </span>
-                                    </span>
-                                  ) : activity.action === "dataset_created" ? (
-                                    <span>
-                                      Created dataset{" "}
-                                      <span className="font-medium text-gray-900">
-                                        {activity.details?.dataset_name}
-                                      </span>
-                                    </span>
-                                  ) : activity.action === "execution_started" ? (
-                                    <span>
-                                      Started execution with model{" "}
-                                      <span className="font-medium text-gray-900">
-                                        {activity.details?.model_name}
-                                      </span>
-                                      , dataset{" "}
-                                      <span className="font-medium text-gray-900">
-                                        {activity.details?.dataset_name}
-                                      </span>{" "}
-                                      and preprocessing{" "}
-                                      <span className="font-medium text-gray-900">
-                                        {activity.details?.preprocessing_name}
-                                      </span>
-                                    </span>
-                                  ) : (
-                                    activity.action
-                                  )}
-                                </p>
-                              </div>
-                              <div className="text-right text-sm whitespace-nowrap text-gray-500">
-                                {new Date(
-                                  activity.created_at,
-                                ).toLocaleDateString()}{" "}
-                                {new Date(
-                                  activity.created_at,
-                                ).toLocaleTimeString()}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               ) : (
-                <p className="text-gray-500 text-sm">No recent activity.</p>
+                <ActivityList
+                  activities={activities}
+                  onLoadMore={loadMoreActivities}
+                  hasMore={hasMoreActivities}
+                  loadingMore={loadingMoreActivities}
+                />
               )}
             </div>
           </div>
         )}
 
         {activeTab === "datasets" && (
-          <div>
+          <div className="animate-fade-in">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-gray-900">Datasets</h3>
               <Link to={`/workspaces/${id}/datasets/new`}>
@@ -635,7 +676,7 @@ const WorkspaceDetailPage = () => {
                           )}
                         </button>
                         {expandedSamples[dataset._id] && (
-                          <div className="flex gap-2 overflow-x-auto pb-2 animate-fade-in-up">
+                          <div className="flex gap-2 overflow-x-auto pb-2 animate-fade-in">
                             {dataset.samples.slice(0, 5).map((sample, idx) => (
                               <img
                                 key={idx}
@@ -674,25 +715,28 @@ const WorkspaceDetailPage = () => {
         )}
 
         {activeTab === "preprocessing" && (
-          <div>
+          <div className="animate-fade-in">
             <PreprocessingTab workspace={workspace} />
           </div>
         )}
 
         {activeTab === "executions" && (
-          <div>
+          <div className="animate-fade-in">
             <ExecutionTab workspace={workspace} />
           </div>
         )}
 
         {activeTab === "visualization" && (
-          <div>
-             <NetworkVisualizationTab workspace={workspace} initialModel={visualizationModel} />
+          <div className="animate-fade-in">
+            <NetworkVisualizationTab
+              workspace={workspace}
+              initialModel={visualizationModel}
+            />
           </div>
         )}
 
         {activeTab === "models" && (
-          <div>
+          <div className="animate-fade-in">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-gray-900">Models</h3>
               <Link to={`/workspaces/${id}/models/new`}>
@@ -745,28 +789,28 @@ const WorkspaceDetailPage = () => {
                         </p>
 
                         <div className="mt-4 mb-2 flex flex-wrap gap-3">
-                            <button
-                                type="button"
-                                onClick={(e) => handleVisualizeModel(e, model)}
-                                title="Show network architecture"
-                                className="flex items-center text-xs font-medium text-purple-600 hover:text-purple-700 focus:outline-none"
-                                >
-                                <FiEye className="mr-1" />
-                                Visualize
-                            </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleVisualizeModel(e, model)}
+                            title="Show network architecture"
+                            className="flex items-center text-xs font-medium text-purple-600 hover:text-purple-700 focus:outline-none"
+                          >
+                            <FiEye className="mr-1" />
+                            Visualize
+                          </button>
 
-                            {model.definition_file_path && (
-                                <button
-                                type="button"
-                                onClick={(e) => handleModelToggle(e, model)}
-                                className="flex items-center text-xs font-medium text-primary-600 hover:text-primary-700 focus:outline-none"
-                                >
-                                <FiCode className="mr-1" />
-                                {selectedModel?._id === model._id
-                                    ? "Hide Definition"
-                                    : "View Definition"}
-                                </button>
-                            )}
+                          {model.definition_file_path && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleModelToggle(e, model)}
+                              className="flex items-center text-xs font-medium text-primary-600 hover:text-primary-700 focus:outline-none"
+                            >
+                              <FiCode className="mr-1" />
+                              {selectedModel?._id === model._id
+                                ? "Hide Definition"
+                                : "View Definition"}
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between text-xs text-gray-500 mt-4 pt-4 border-t border-gray-100">
@@ -784,7 +828,7 @@ const WorkspaceDetailPage = () => {
 
                 {/* Detail / Code Panel */}
                 {selectedModel && (
-                  <div className="lg:w-1/2 xl:w-5/12 animate-fade-in-up md:animate-slide-in-right">
+                  <div className="lg:w-1/2 xl:w-5/12 animate-fade-in">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden sticky top-6">
                       <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
                         <h4 className="font-medium text-gray-900 flex items-center gap-2">

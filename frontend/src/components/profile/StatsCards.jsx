@@ -1,5 +1,5 @@
 import React from "react";
-import { FiDatabase, FiCpu, FiActivity } from "react-icons/fi";
+import { FiFolder, FiTerminal, FiCloud } from "react-icons/fi";
 import { Card } from "../common";
 
 const StatCard = ({ title, value, icon, color }) => {
@@ -26,19 +26,19 @@ const StatsCards = ({ stats }) => {
       <StatCard
         title="Total Workspaces"
         value={stats.workspaces_count || 0}
-        icon={<FiDatabase className="w-6 h-6" />}
+        icon={<FiFolder className="w-6 h-6" />}
         color="bg-purple-600"
       />
       <StatCard
         title="Completed Executions"
         value={stats.models_trained || 0}
-        icon={<FiCpu className="w-6 h-6" />}
+        icon={<FiTerminal className="w-6 h-6" />}
         color="bg-blue-600"
       />
       <StatCard
         title="CO2 Emissions (kg)"
         value={Number(stats.co2_saved || 0).toFixed(2)}
-        icon={<FiActivity className="w-6 h-6" />}
+        icon={<FiCloud className="w-6 h-6" />}
         color="bg-green-600"
       />
     </div>

@@ -128,6 +128,7 @@ async def delete_workspace(
 @router.get("/{workspace_id}/activities", response_model=List[ActivityLog])
 async def list_workspace_activities(
     workspace_id: str,
+    limit: int = 5,
     current_user: UserInDB = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     activity_service: ActivityService = Depends(get_activity_service)
@@ -140,4 +141,20 @@ async def list_workspace_activities(
     if str(workspace.owner_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    return await activity_service.get_workspace_activities(workspace_id)
+    return await activity_service.get_workspace_activities(workspace_id, limit=limit)
+
+@router.get("/{workspace_id}/stats")
+async def get_workspace_stats(
+    workspace_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service)
+):
+    """Get statistics for a workspace."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    return await workspace_service.get_workspace_stats(workspace_id)

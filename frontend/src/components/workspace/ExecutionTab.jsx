@@ -364,7 +364,10 @@ const ExecutionTab = ({ workspace }) => {
                       onChange={(e) =>
                         setConfig({
                           ...config,
-                          limit_samples: e.target.value === "" ? 0 : parseInt(e.target.value),
+                          limit_samples:
+                            e.target.value === ""
+                              ? 0
+                              : parseInt(e.target.value),
                         })
                       }
                       className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
@@ -707,7 +710,6 @@ const ExecutionTab = ({ workspace }) => {
                       </p>
                     </div>
 
-
                     {/* Preprocessing Info */}
                     <div className="p-3 bg-gray-50 rounded border border-gray-100">
                       <p className="text-xs text-gray-500 mb-1">
@@ -823,21 +825,30 @@ const ExecutionTab = ({ workspace }) => {
                               key !== "processed_samples",
                           )
                           .sort((a, b) => {
-                             const order = ["accuracy", "top5_accuracy", "loss", "precision", "recall", "f1_score"];
-                             const idxA = order.indexOf(a[0]);
-                             const idxB = order.indexOf(b[0]);
-                             if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                             if (idxA !== -1) return -1;
-                             if (idxB !== -1) return 1;
-                             return 0;
+                            const order = [
+                              "accuracy",
+                              "top5_accuracy",
+                              "loss",
+                              "precision",
+                              "recall",
+                              "f1_score",
+                            ];
+                            const idxA = order.indexOf(a[0]);
+                            const idxB = order.indexOf(b[0]);
+                            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                            if (idxA !== -1) return -1;
+                            if (idxB !== -1) return 1;
+                            return 0;
                           })
-                          .map(
-                          ([key, value]) => (
+                          .map(([key, value]) => (
                             <div
                               key={key}
                               className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm"
                             >
-                              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 truncate" title={key.replace(/_/g, " ")}>
+                              <p
+                                className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 truncate"
+                                title={key.replace(/_/g, " ")}
+                              >
                                 {key.replace(/_/g, " ")}
                               </p>
                               <p className="text-lg font-bold text-primary-600">
@@ -848,8 +859,7 @@ const ExecutionTab = ({ workspace }) => {
                                   : String(value)}
                               </p>
                             </div>
-                          ),
-                        )}
+                          ))}
                       </div>
                     ) : (
                       <div className="text-sm text-gray-500 italic p-3 bg-gray-50 rounded border border-gray-100">

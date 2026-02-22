@@ -101,42 +101,44 @@ const ProfilePage = () => {
           </button>
         </div>
 
-        {activeTab === "overview" ? (
-          <div>
-            <StatsCards stats={stats} />
-            <ActivityList
-              activities={activities}
-              onLoadMore={loadMoreActivities}
-              hasMore={hasMoreActivities}
-              loadingMore={loadingMore}
-            />
-          </div>
-        ) : (
-          <div>
-            <ProfileSettings user={user} refreshUser={fetchProfileData} />
+        <div key={activeTab} className="animate-fade-in">
+          {activeTab === "overview" ? (
+            <div>
+              <StatsCards stats={stats} />
+              <ActivityList
+                activities={activities}
+                onLoadMore={loadMoreActivities}
+                hasMore={hasMoreActivities}
+                loadingMore={loadingMore}
+              />
+            </div>
+          ) : (
+            <div>
+              <ProfileSettings user={user} refreshUser={fetchProfileData} />
 
-            <div className="mt-8 border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-medium text-red-600 mb-4">
-                Danger Zone
-              </h3>
-              <div className="bg-red-50 border border-red-200 rounded-md p-4 flex justify-between items-center">
-                <div>
-                  <p className="font-medium text-red-800">Delete Account</p>
-                  <p className="text-sm text-red-600">
-                    Once you delete your account, there is no going back. Please
-                    be certain.
-                  </p>
+              <div className="mt-8 border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-medium text-red-600 mb-4">
+                  Danger Zone
+                </h3>
+                <div className="bg-red-50 border border-red-200 rounded-md p-4 flex justify-between items-center">
+                  <div>
+                    <p className="font-medium text-red-800">Delete Account</p>
+                    <p className="text-sm text-red-600">
+                      Once you delete your account, there is no going back.
+                      Please be certain.
+                    </p>
+                  </div>
+                  <button
+                    className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition"
+                    onClick={() => alert("Contact support to delete account.")}
+                  >
+                    Delete Account
+                  </button>
                 </div>
-                <button
-                  className="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition"
-                  onClick={() => alert("Contact support to delete account.")}
-                >
-                  Delete Account
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </MainLayout>
   );
