@@ -7,7 +7,7 @@ from app.dependencies import get_current_user
 from app.models.auth import UserInDB
 from app.models.workspace import WorkspaceCreate
 from app.models.activity import ActivityLog
-from app.schemas.workspace import WorkspaceCreateRequest, WorkspaceResponse
+from app.schemas.workspace import WorkspaceCreateRequest, WorkspaceUpdateRequest, WorkspaceResponse
 from app.services.workspace import WorkspaceService
 from app.services.activity_service import ActivityService
 
@@ -31,7 +31,8 @@ async def create_workspace(
     """Create a new workspace."""
     workspace_create = WorkspaceCreate(
         name=request.name,
-        description=request.description
+        description=request.description,
+        is_public=request.is_public
     )
     
     workspace = await workspace_service.create_workspace(
@@ -50,6 +51,7 @@ async def create_workspace(
         id=str(workspace.id),
         name=workspace.name,
         description=workspace.description,
+        is_public=workspace.is_public,
         owner_id=str(workspace.owner_id),
         created_at=workspace.created_at,
         updated_at=workspace.updated_at
@@ -69,6 +71,7 @@ async def list_workspaces(
             id=str(w.id),
             name=w.name,
             description=w.description,
+            is_public=w.is_public,
             owner_id=str(w.owner_id),
             created_at=w.created_at,
             updated_at=w.updated_at
@@ -103,9 +106,61 @@ async def get_workspace(
         id=str(workspace.id),
         name=workspace.name,
         description=workspace.description,
+        is_public=workspace.is_public,
         owner_id=str(workspace.owner_id),
         created_at=workspace.created_at,
         updated_at=workspace.updated_at
+    )
+
+
+@router.put("/{workspace_id}", response_model=WorkspaceResponse)
+async def update_workspace(
+    workspace_id: str,
+    request: WorkspaceUpdateRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    activity_service: ActivityService = Depends(get_activity_service)
+):
+    """Update a workspace."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    update_data = request.model_dump(exclude_unset=True)
+    if not update_data:
+        return WorkspaceResponse(
+            id=str(workspace.id),
+            name=workspace.name,
+            description=workspace.description,
+            is_public=workspace.is_public,
+            owner_id=str(workspace.owner_id),
+            created_at=workspace.created_at,
+            updated_at=workspace.updated_at
+        )
+
+    updated_workspace = await workspace_service.update_workspace(workspace_id, str(current_user.id), update_data)
+    
+    if not updated_workspace:
+        raise HTTPException(status_code=400, detail="Failed to update workspace")
+
+    await activity_service.log_activity(
+        workspace_id=str(updated_workspace.id),
+        user_id=str(current_user.id),
+        action="workspace_updated",
+        details={"fields_updated": list(update_data.keys())}
+    )
+
+    return WorkspaceResponse(
+        id=str(updated_workspace.id),
+        name=updated_workspace.name,
+        description=updated_workspace.description,
+        is_public=updated_workspace.is_public,
+        owner_id=str(updated_workspace.owner_id),
+        created_at=updated_workspace.created_at,
+        updated_at=updated_workspace.updated_at
     )
 
 

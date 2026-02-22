@@ -12,13 +12,21 @@ class PreprocessingDefinition(BaseModel):
 class WorkspaceCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
+    is_public: Optional[bool] = False
     preprocessing: Optional[PreprocessingDefinition] = None
+
+
+class WorkspaceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_public: Optional[bool] = None
 
 
 class WorkspaceResponse(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    is_public: bool = False
     preprocessing: Optional[PreprocessingDefinition] = None
     owner_id: str
     created_at: datetime

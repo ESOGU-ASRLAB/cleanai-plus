@@ -7,6 +7,7 @@ import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
 import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
+import WorkspaceSettingsModal from "../components/workspace/WorkspaceSettingsModal";
 import ActivityList from "../components/profile/ActivityList";
 import {
   FiArrowLeft,
@@ -347,6 +348,55 @@ const WorkspaceDetailPage = () => {
     }
   };
 
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  const handleUpdateWorkspace = async (updateData) => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(updateData),
+        },
+      );
+
+      if (!response.ok) throw new Error("Failed to update workspace");
+
+      const updatedWorkspace = await response.json();
+      setWorkspace(updatedWorkspace);
+      success("Workspace updated successfully");
+    } catch (err) {
+      errorToast(err.message);
+      throw err;
+    }
+  };
+
+  const handleDeleteWorkspace = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok) throw new Error("Failed to delete workspace");
+
+      success("Workspace deleted successfully");
+      navigate("/");
+    } catch (err) {
+      errorToast(err.message);
+      throw err;
+    }
+  };
+
   if (loading) {
     return (
       <MainLayout>
@@ -398,11 +448,23 @@ const WorkspaceDetailPage = () => {
               {new Date(workspace.created_at).toLocaleDateString()}
             </p>
           </div>
-          <Button variant="secondary" icon={<FiSettings />}>
+          <Button
+            variant="secondary"
+            icon={<FiSettings />}
+            onClick={() => setIsSettingsModalOpen(true)}
+          >
             Settings
           </Button>
         </div>
       </div>
+
+      <WorkspaceSettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        workspace={workspace}
+        onUpdate={handleUpdateWorkspace}
+        onDelete={handleDeleteWorkspace}
+      />
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-8">

@@ -40,6 +40,22 @@ class WorkspaceService:
             return WorkspaceInDB(**document)
         return None
 
+    async def update_workspace(self, workspace_id: str, user_id: str, update_data: dict) -> Optional[WorkspaceInDB]:
+        """Update a workspace."""
+        if not ObjectId.is_valid(workspace_id):
+            return None
+            
+        update_data["updated_at"] = datetime.utcnow()
+        
+        result = await self.workspaces_collection.update_one(
+            {"_id": ObjectId(workspace_id), "owner_id": ObjectId(user_id)},
+            {"$set": update_data}
+        )
+        
+        if result.modified_count > 0:
+            return await self.get_workspace_by_id(workspace_id)
+        return None
+
     async def delete_workspace(self, workspace_id: str, user_id: str) -> bool:
         """Delete a workspace knowing the user is the owner."""
         if not ObjectId.is_valid(workspace_id):
