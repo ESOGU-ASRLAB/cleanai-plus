@@ -24,6 +24,7 @@ from app.routers.code_assist import router as code_assist_router
 from app.routers.dataset import router as dataset_router
 from app.routers.workspace.preprocessing import router as preprocessing_router
 from app.routers.workspace.execution import router as execution_router
+from app.routers.users import router as users_router
 from app.config import settings
 from beanie import init_beanie
 from app.models.dataset.dataset import Dataset
@@ -89,6 +90,7 @@ app.include_router(ai_model_router, prefix="/api")
 app.include_router(dataset_router, prefix="/api/workspaces/{workspace_id}/datasets", tags=["Datasets"])
 app.include_router(preprocessing_router, prefix="/api/workspaces/{workspace_id}/preprocessing", tags=["Preprocessing"])
 app.include_router(execution_router, prefix="/api/workspaces/{workspace_id}/executions", tags=["Executions"])
+app.include_router(users_router, prefix="/api")
 app.include_router(code_assist_router, prefix="/api")
 
 # Mount uploads directory for static access

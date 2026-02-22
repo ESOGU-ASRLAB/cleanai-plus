@@ -16,6 +16,7 @@ import WorkspaceDetailPage from "./pages/WorkspaceDetailPage";
 import NewModelPage from "./pages/NewModelPage";
 import NewDatasetPage from "./pages/NewDatasetPage";
 import Model3DPage from "./pages/Model3DPage";
+import ProfilePage from "./pages/ProfilePage";
 
 // Component to handle home route logic
 const HomeRouter = () => {
@@ -101,6 +102,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <NewDatasetPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
                 </ProtectedRoute>
               }
             />

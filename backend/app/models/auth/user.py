@@ -23,6 +23,7 @@ class PyObjectId(ObjectId):
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=100)
+    avatar_url: Optional[str] = None
     is_active: bool = True
     is_verified: bool = False
 
@@ -34,6 +35,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     full_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    avatar_url: Optional[str] = None
     is_active: Optional[bool] = None
     is_verified: Optional[bool] = None
 
