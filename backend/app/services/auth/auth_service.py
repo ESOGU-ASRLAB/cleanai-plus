@@ -7,7 +7,7 @@ from bson import ObjectId
 
 from app.models.auth import UserCreate, UserInDB
 from app.utils.security import get_password_hash, verify_password
-from app.services.email_service import send_verification_email
+from app.services.email_service import send_verification_email, send_welcome_email
 
 def generate_verification_code(length=5):
     return ''.join(random.choices(string.digits, k=length))
@@ -42,7 +42,20 @@ class AuthService:
         user_dict["_id"] = result.inserted_id
 
         # Send email
-        send_verification_email(user_create.email, verification_code, user_create.full_name)
+        success, html_content = send_verification_email(user_create.email, verification_code, user_create.full_name)
+        
+        # Log email
+        await self.db.email_logs.insert_one({
+            "user_id": result.inserted_id,
+            "to_email": user_create.email,
+            "subject": "CleanAI+ - Verify Your Account",
+            "status": "sent" if success else "failed",
+            "email_type": "verification",
+            "content_html": html_content,
+            "attachment_base64": None,
+            "error_message": None if success else "SMTP Error",
+            "sent_at": datetime.utcnow()
+        })
 
         return UserInDB(**user_dict)
 
@@ -66,6 +79,23 @@ class AuthService:
                 "updated_at": datetime.utcnow()
             }}
         )
+        
+        # Send welcome email
+        success, html_content = send_welcome_email(user.email, user.full_name)
+        
+        # Log email
+        await self.db.email_logs.insert_one({
+            "user_id": user.id,
+            "to_email": user.email,
+            "subject": "Welcome to CleanAI+!",
+            "status": "sent" if success else "failed",
+            "email_type": "welcome",
+            "content_html": html_content,
+            "attachment_base64": None,
+            "error_message": None if success else "SMTP Error",
+            "sent_at": datetime.utcnow()
+        })
+        
         return True
 
     async def resend_verification_code(self, email: str) -> bool:
@@ -87,7 +117,21 @@ class AuthService:
             }}
         )
 
-        send_verification_email(user.email, verification_code, user.full_name)
+        success, html_content = send_verification_email(user.email, verification_code, user.full_name)
+        
+        # Log email
+        await self.db.email_logs.insert_one({
+            "user_id": user.id,
+            "to_email": user.email,
+            "subject": "CleanAI+ - Verify Your Account",
+            "status": "sent" if success else "failed",
+            "email_type": "verification",
+            "content_html": html_content,
+            "attachment_base64": None,
+            "error_message": None if success else "SMTP Error",
+            "sent_at": datetime.utcnow()
+        })
+        
         return True
 
     async def get_user_by_email(self, email: str) -> Optional[UserInDB]:

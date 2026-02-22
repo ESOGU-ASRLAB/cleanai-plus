@@ -3,6 +3,7 @@ from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.models.auth.user import UserInDB, UserUpdate
+from app.models.auth.notification_settings import NotificationSettingsInDB, NotificationSettingsUpdate
 from app.models.activity import ActivityLog
 
 class UserService:
@@ -92,3 +93,31 @@ class UserService:
         
         updated_user = await self.users_collection.find_one({"_id": ObjectId(user_id)})
         return UserInDB(**updated_user) if updated_user else None
+
+    async def get_notification_settings(self, user_id: str) -> NotificationSettingsInDB:
+        settings = await self.db.notification_settings.find_one({"user_id": ObjectId(user_id)})
+        if not settings:
+            # Create default settings
+            new_settings = {
+                "user_id": ObjectId(user_id),
+                "execution_success": True,
+                "execution_failure": True,
+                "marketing": False,
+                "updated_at": datetime.utcnow()
+            }
+            result = await self.db.notification_settings.insert_one(new_settings)
+            new_settings["_id"] = result.inserted_id
+            return NotificationSettingsInDB(**new_settings)
+        return NotificationSettingsInDB(**settings)
+
+    async def update_notification_settings(self, user_id: str, update_data: NotificationSettingsUpdate) -> NotificationSettingsInDB:
+        update_dict = update_data.model_dump(exclude_unset=True)
+        update_dict["updated_at"] = datetime.utcnow()
+        
+        await self.db.notification_settings.update_one(
+            {"user_id": ObjectId(user_id)},
+            {"$set": update_dict},
+            upsert=True
+        )
+        
+        return await self.get_notification_settings(user_id)

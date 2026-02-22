@@ -87,6 +87,35 @@ const userService = {
       throw error;
     }
   },
+
+  getNotificationSettings: async () => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/users/me/notification-settings`,
+        {
+          headers: getAuthHeader(),
+        },
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  updateNotificationSettings: async (settingsData) => {
+    try {
+      const response = await axios.put(
+        `${API_URL}/users/me/notification-settings`,
+        settingsData,
+        {
+          headers: getAuthHeader(),
+        },
+      );
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 };
 
 export default userService;

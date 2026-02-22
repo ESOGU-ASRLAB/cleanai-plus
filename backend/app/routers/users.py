@@ -3,6 +3,7 @@ import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from app.models.auth import UserInDB, UserUpdate
+from app.models.auth.notification_settings import NotificationSettingsBase, NotificationSettingsUpdate, NotificationSettingsInDB
 from app.services.auth import AuthService
 from app.services.user_service import UserService
 from app.database.mongodb import get_database
@@ -94,3 +95,20 @@ async def get_user_activities(
 ):
     activities = await user_service.get_user_activities(str(current_user.id), limit)
     return activities
+
+@router.get("/me/notification-settings", response_model=NotificationSettingsInDB)
+async def get_notification_settings(
+    current_user: UserInDB = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service)
+):
+    settings = await user_service.get_notification_settings(str(current_user.id))
+    return settings
+
+@router.put("/me/notification-settings", response_model=NotificationSettingsInDB)
+async def update_notification_settings(
+    settings_update: NotificationSettingsUpdate,
+    current_user: UserInDB = Depends(get_current_user),
+    user_service: UserService = Depends(get_user_service)
+):
+    updated_settings = await user_service.update_notification_settings(str(current_user.id), settings_update)
+    return updated_settings

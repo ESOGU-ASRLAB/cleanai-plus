@@ -27,7 +27,7 @@ const EXECUTION_STEPS = [
   { id: 5, title: "Review & Run" },
 ];
 
-const ExecutionTab = ({ workspace }) => {
+const ExecutionTab = ({ workspace, initialExecutionId }) => {
   const { token } = useAuth();
   const { showAlert } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
@@ -74,7 +74,20 @@ const ExecutionTab = ({ workspace }) => {
         `http://localhost:8000/api/workspaces/${workspace.id}/executions`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      if (res.ok) setExecutions(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setExecutions(data);
+
+        // If initialExecutionId is provided, select it automatically
+        if (initialExecutionId) {
+          const targetExec = data.find(
+            (e) => e.id === initialExecutionId || e._id === initialExecutionId,
+          );
+          if (targetExec) {
+            setSelectedExecution(targetExec);
+          }
+        }
+      }
     } catch (err) {
       console.error(err);
     } finally {

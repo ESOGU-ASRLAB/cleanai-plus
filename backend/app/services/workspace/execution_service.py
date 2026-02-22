@@ -9,9 +9,12 @@ import importlib.util
 from datetime import datetime
 from beanie import PydanticObjectId
 from app.models.workspace.execution import Execution, ExecutionStatus
+from app.models.workspace.workspace import Workspace
+from app.models.auth.user import UserInDB
 from app.models.dataset.dataset import Dataset
 from app.models.workspace.preprocessing import Preprocessing
 from app.services.report_service import ReportService
+from app.services.email_service import send_execution_result_email
 from app.models.ai_model import ModelFormat
 from app.schemas.execution import ExecutionCreate
 from app.database.mongodb import get_database
@@ -360,6 +363,7 @@ class ExecutionService:
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
 
             # 7. Generate Report
+            pdf_path = None
             try:
                 report_service = ReportService()
                 
@@ -379,7 +383,7 @@ class ExecutionService:
                     elif preprocessing_doc.mode == "code":
                         preprocessing_code = preprocessing_doc.code
 
-                await report_service.generate_execution_report(
+                report = await report_service.generate_execution_report(
                     execution=execution,
                     model_name=model_doc["name"],
                     dataset_name=dataset_doc.name,
@@ -387,9 +391,56 @@ class ExecutionService:
                     preprocessing_steps=preprocessing_steps,
                     preprocessing_code=preprocessing_code
                 )
+                pdf_path = report.file_path
                 print(f"Report generated for execution {execution_id}")
             except Exception as report_err:
                 print(f"Failed to generate report: {report_err}")
+
+            # 8. Send Success Email
+            try:
+                db = await get_database()
+                workspace = await db.workspaces.find_one({"_id": execution.workspace_id})
+                if workspace:
+                    user = await db.users.find_one({"_id": workspace["owner_id"]})
+                    if user and user.get("email"):
+                        # Check notification settings
+                        settings = await db.notification_settings.find_one({"user_id": user["_id"]})
+                        send_email = True
+                        if settings and not settings.get("execution_success", True):
+                            send_email = False
+                            
+                        if send_email:
+                            success, html_content, attachment_base64 = send_execution_result_email(
+                                to_email=user["email"],
+                                full_name=user.get("full_name", "User"),
+                                execution_id=str(execution.id),
+                                workspace_id=str(workspace["_id"]),
+                                status="completed",
+                                metrics=execution.metrics,
+                                pdf_path=pdf_path
+                            )
+                            
+                            # Log email
+                            await db.email_logs.insert_one({
+                                "user_id": user["_id"],
+                                "to_email": user["email"],
+                                "subject": f"CleanAI+ - Execution Completed Successfully ({str(execution.id)[:8]})",
+                                "status": "sent" if success else "failed",
+                                "email_type": "execution_success",
+                                "content_html": html_content,
+                                "attachment_base64": attachment_base64,
+                                "error_message": None if success else "SMTP Error",
+                                "sent_at": datetime.utcnow()
+                            })
+                            
+                            if success:
+                                print(f"Success email sent to {user['email']}")
+                            else:
+                                print(f"Failed to send success email to {user['email']}")
+                        else:
+                            print(f"Success email skipped for {user['email']} due to notification settings.")
+            except Exception as email_err:
+                print(f"Failed to process success email: {email_err}")
 
         except Exception as e:
             print(f"Execution failed: {str(e)}")
@@ -397,6 +448,51 @@ class ExecutionService:
             execution.error_message = str(e)
             execution.completed_at = datetime.utcnow()
             await execution.save()
+            
+            # Send Failure Email
+            try:
+                db = await get_database()
+                workspace = await db.workspaces.find_one({"_id": execution.workspace_id})
+                if workspace:
+                    user = await db.users.find_one({"_id": workspace["owner_id"]})
+                    if user and user.get("email"):
+                        # Check notification settings
+                        settings = await db.notification_settings.find_one({"user_id": user["_id"]})
+                        send_email = True
+                        if settings and not settings.get("execution_failure", True):
+                            send_email = False
+                            
+                        if send_email:
+                            success, html_content, attachment_base64 = send_execution_result_email(
+                                to_email=user["email"],
+                                full_name=user.get("full_name", "User"),
+                                execution_id=str(execution.id),
+                                workspace_id=str(workspace["_id"]),
+                                status="failed",
+                                error_message=str(e)
+                            )
+                            
+                            # Log email
+                            await db.email_logs.insert_one({
+                                "user_id": user["_id"],
+                                "to_email": user["email"],
+                                "subject": f"CleanAI+ - Execution Failed ({str(execution.id)[:8]})",
+                                "status": "sent" if success else "failed",
+                                "email_type": "execution_failure",
+                                "content_html": html_content,
+                                "attachment_base64": attachment_base64,
+                                "error_message": None if success else "SMTP Error",
+                                "sent_at": datetime.utcnow()
+                            })
+                            
+                            if success:
+                                print(f"Failure email sent to {user['email']}")
+                            else:
+                                print(f"Failed to send failure email to {user['email']}")
+                        else:
+                            print(f"Failure email skipped for {user['email']} due to notification settings.")
+            except Exception as email_err:
+                print(f"Failed to process failure email: {email_err}")
 
     def _build_transforms(self, preprocessing_doc: Optional[Preprocessing]) -> transforms.Compose:
         """

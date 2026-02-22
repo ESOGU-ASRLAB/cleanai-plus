@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { MainLayout } from "../components/layout";
@@ -7,7 +7,7 @@ import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
 import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
-import WorkspaceSettingsModal from "../components/workspace/WorkspaceSettingsModal";
+import WorkspaceSettingsTab from "../components/workspace/WorkspaceSettingsTab";
 import ActivityList from "../components/profile/ActivityList";
 import {
   FiArrowLeft,
@@ -38,12 +38,46 @@ const WorkspaceDetailPage = () => {
   const { token } = useAuth();
   const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState("overview");
+
+  const getInitialTab = () => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    if (tabParam) return tabParam;
+    if (location.hash) return location.hash.replace("#", "");
+    return "overview";
+  };
+
+  const getInitialExecutionId = () => {
+    const params = new URLSearchParams(location.search);
+    return params.get("execution");
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab());
+  const [initialExecutionId, setInitialExecutionId] = useState(
+    getInitialExecutionId(),
+  );
   const [visualizationModel, setVisualizationModel] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    const execParam = params.get("execution");
+
+    if (tabParam) {
+      setActiveTab(tabParam);
+    } else if (location.hash) {
+      setActiveTab(location.hash.replace("#", ""));
+    }
+
+    if (execParam) {
+      setInitialExecutionId(execParam);
+    }
+  }, [location]);
 
   // Models state
   const [models, setModels] = useState([]);
@@ -349,8 +383,6 @@ const WorkspaceDetailPage = () => {
     }
   };
 
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
   const handleUpdateWorkspace = async (updateData) => {
     try {
       const response = await fetch(
@@ -452,20 +484,12 @@ const WorkspaceDetailPage = () => {
           <Button
             variant="secondary"
             icon={<FiSettings />}
-            onClick={() => setIsSettingsModalOpen(true)}
+            onClick={() => setActiveTab("settings")}
           >
             Settings
           </Button>
         </div>
       </div>
-
-      <WorkspaceSettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        workspace={workspace}
-        onUpdate={handleUpdateWorkspace}
-        onDelete={handleDeleteWorkspace}
-      />
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-8">
@@ -547,6 +571,19 @@ const WorkspaceDetailPage = () => {
             `}
           >
             <FiShare2 className="mr-2" /> Network Visualization
+          </button>
+          <button
+            onClick={() => setActiveTab("settings")}
+            className={`
+              pb-4 px-1 border-b-2 font-medium text-sm flex items-center
+              ${
+                activeTab === "settings"
+                  ? "border-primary-500 text-primary-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }
+            `}
+          >
+            <FiSettings className="mr-2" /> Settings
           </button>
         </nav>
       </div>
@@ -792,7 +829,10 @@ const WorkspaceDetailPage = () => {
 
         {activeTab === "executions" && (
           <div className="animate-fade-in">
-            <ExecutionTab workspace={workspace} />
+            <ExecutionTab
+              workspace={workspace}
+              initialExecutionId={initialExecutionId}
+            />
           </div>
         )}
 
@@ -801,6 +841,16 @@ const WorkspaceDetailPage = () => {
             <NetworkVisualizationTab
               workspace={workspace}
               initialModel={visualizationModel}
+            />
+          </div>
+        )}
+
+        {activeTab === "settings" && (
+          <div className="animate-fade-in">
+            <WorkspaceSettingsTab
+              workspace={workspace}
+              onUpdate={handleUpdateWorkspace}
+              onDelete={handleDeleteWorkspace}
             />
           </div>
         )}

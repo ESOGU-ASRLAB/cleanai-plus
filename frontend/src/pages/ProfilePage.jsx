@@ -6,6 +6,7 @@ import ProfileHeader from "../components/profile/ProfileHeader";
 import StatsCards from "../components/profile/StatsCards";
 import ActivityList from "../components/profile/ActivityList";
 import ProfileSettings from "../components/profile/ProfileSettings";
+import NotificationSettings from "../components/profile/NotificationSettings";
 import ProfileVerification from "../components/profile/ProfileVerification";
 import userService from "../services/userService";
 import { useAuth } from "../context/AuthContext";
@@ -134,6 +135,7 @@ const ProfilePage = () => {
                 />
               )}
               <ProfileSettings user={user} refreshUser={fetchProfileData} />
+              <NotificationSettings />
 
               <Card className="p-6 border-accent-200">
                 <h3 className="text-lg font-medium text-accent-600 mb-2 flex items-center">

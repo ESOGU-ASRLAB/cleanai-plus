@@ -55,6 +55,7 @@ async def register(
             detail=str(e)
         )
     except Exception as e:
+        print(f"Error creating user: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the user"

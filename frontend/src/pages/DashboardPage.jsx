@@ -37,57 +37,58 @@ const DashboardPage = () => {
         {user && !user.is_verified && showVerificationAlert && (
           <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-md shadow-sm flex items-start justify-between">
             <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <FiAlertCircle
-                className="h-5 w-5 text-yellow-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-yellow-800">
-                Your account is not verified yet
-              </h3>
-              <div className="mt-1 text-sm text-yellow-700">
-                <p>
-                  Please activate your account using the verification code sent
-                  to your email address. Unverified accounts may have restricted
-                  features.
-                </p>
-                <button
-                  onClick={handleVerifyClick}
-                  className="mt-2 text-sm font-medium text-yellow-800 underline hover:text-yellow-900"
-                >
-                  Click here to verify your account
-                </button>
+              <div className="flex-shrink-0">
+                <FiAlertCircle
+                  className="h-5 w-5 text-yellow-400"
+                  aria-hidden="true"
+                />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-yellow-800">
+                  Your account is not verified yet
+                </h3>
+                <div className="mt-1 text-sm text-yellow-700">
+                  <p>
+                    Please activate your account using the verification code
+                    sent to your email address. Unverified accounts may have
+                    restricted features.
+                  </p>
+                  <button
+                    onClick={handleVerifyClick}
+                    className="mt-2 text-sm font-medium text-yellow-800 underline hover:text-yellow-900"
+                  >
+                    Click here to verify your account
+                  </button>
+                </div>
               </div>
             </div>
+            <button
+              type="button"
+              className="ml-auto bg-yellow-50 text-yellow-500 hover:text-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 rounded-md p-1.5"
+              onClick={() => setShowVerificationAlert(false)}
+            >
+              <span className="sr-only">Close</span>
+              <FiX className="h-5 w-5" aria-hidden="true" />
+            </button>
           </div>
-          <button
-            type="button"
-            className="ml-auto bg-yellow-50 text-yellow-500 hover:text-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 rounded-md p-1.5"
-            onClick={() => setShowVerificationAlert(false)}
-          >
-            <span className="sr-only">Close</span>
-            <FiX className="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
-      )}
+        )}
 
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Workspaces</h1>
-          <p className="text-gray-500 mt-1">
-            Manage your models and experiments
-          </p>
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">My Workspaces</h1>
+            <p className="text-gray-500 mt-1">
+              Manage your models and experiments
+            </p>
+          </div>
+          <Link to="/workspaces/new">
+            <Button className="flex items-center">
+              <FiPlus className="mr-2" /> New Workspace
+            </Button>
+          </Link>
         </div>
-        <Link to="/workspaces/new">
-          <Button className="flex items-center">
-            <FiPlus className="mr-2" /> New Workspace
-          </Button>
-        </Link>
+
+        <WorkspaceList />
       </div>
-
-      <WorkspaceList />
     </MainLayout>
   );
 };

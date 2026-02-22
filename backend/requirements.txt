@@ -22,3 +22,5 @@ safetensors
 reportlab==4.0.9
 onnx
 scikit-learn
+codecarbon
+thop
