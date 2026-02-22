@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { FiAlertTriangle, FiLock, FiGlobe, FiSave, FiTrash2 } from "react-icons/fi";
+import {
+  FiAlertTriangle,
+  FiLock,
+  FiGlobe,
+  FiSave,
+  FiTrash2,
+} from "react-icons/fi";
 import { Button } from "../common";
 
-const WorkspaceSettingsTab = ({
-  workspace,
-  onUpdate,
-  onDelete,
-}) => {
+const WorkspaceSettingsTab = ({ workspace, onUpdate, onDelete }) => {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isPublic, setIsPublic] = useState(false);
@@ -51,7 +53,9 @@ const WorkspaceSettingsTab = ({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-medium text-gray-900">Workspace Settings</h2>
+        <h2 className="text-lg font-medium text-gray-900">
+          Workspace Settings
+        </h2>
         <p className="text-sm text-gray-500">
           Manage your workspace details, visibility, and danger zone actions.
         </p>
@@ -157,7 +161,11 @@ const WorkspaceSettingsTab = ({
             </div>
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={isSubmitting} className="flex items-center">
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex items-center"
+              >
                 <FiSave className="mr-2" />
                 {isSubmitting ? "Saving..." : "Save Changes"}
               </Button>
@@ -173,13 +181,16 @@ const WorkspaceSettingsTab = ({
             <FiAlertTriangle className="mr-2" /> Danger Zone
           </h3>
           <p className="text-sm text-red-600 mb-6">
-            Once you delete a workspace, there is no going back. This action will permanently delete all associated models, datasets, and executions. Please be certain.
+            Once you delete a workspace, there is no going back. This action
+            will permanently delete all associated models, datasets, and
+            executions. Please be certain.
           </p>
-          
+
           {showDeleteConfirm ? (
             <div className="bg-white p-4 rounded-md border border-red-200 animate-fade-in">
               <p className="text-sm font-medium text-gray-900 mb-4">
-                Are you absolutely sure you want to delete <strong>{workspace.name}</strong>?
+                Are you absolutely sure you want to delete{" "}
+                <strong>{workspace.name}</strong>?
               </p>
               <div className="flex gap-3">
                 <button
