@@ -243,7 +243,10 @@ class ReportService:
                 label_text = k.replace("_", " ").title()
                 if k == "emissions":
                     label_text = "CO2 Emissions (g)"
-                    value_text = f"{float(v):.6f}"
+                    value_text = f"{float(v):.2f}"
+                elif k == "emissions_per_min":
+                    label_text = "Emissions / Min (g)"
+                    value_text = f"{float(v):.2f}"
                 else:
                     value_text = str(v)
                 

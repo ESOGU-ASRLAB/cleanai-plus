@@ -37,7 +37,7 @@ const StatsCards = ({ stats }) => {
       />
       <StatCard
         title="CO2 Emissions (g)"
-        value={Number(stats.co2_saved || 0).toFixed(4)}
+        value={Number(stats.co2_saved || 0).toFixed(2)}
         icon={<FiCloud className="w-6 h-6" />}
         color="bg-green-600"
       />

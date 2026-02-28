@@ -866,16 +866,16 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                             >
                               <p
                                 className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 truncate"
-                                title={key === "emissions" ? "CO2 Emissions (g)" : key.replace(/_/g, " ")}
+                                title={key === "emissions" ? "CO2 Emissions (g)" : key === "emissions_per_min" ? "Emissions / Min (g)" : key.replace(/_/g, " ")}
                               >
-                                {key === "emissions" ? "CO2 Emissions (g)" : key.replace(/_/g, " ")}
+                                {key === "emissions" ? "CO2 Emissions (g)" : key === "emissions_per_min" ? "Emissions / Min (g)" : key.replace(/_/g, " ")}
                               </p>
                               <p className="text-lg font-bold text-primary-600">
-                                {key === "emissions"
-                                  ? (typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(value))
+                                {key === "emissions" || key === "emissions_per_min"
+                                  ? (typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(value))
                                   : typeof value === "number"
                                   ? value.toLocaleString(undefined, {
-                                      maximumFractionDigits: 4,
+                                      maximumFractionDigits: 2,
                                     })
                                   : String(value)}
                               </p>

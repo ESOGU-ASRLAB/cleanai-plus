@@ -653,7 +653,7 @@ const WorkspaceDetailPage = () => {
                 <p className="text-2xl font-bold text-gray-900 truncate">
                   {statsLoading
                     ? "..."
-                    : Number(stats.co2_saved || 0).toFixed(4)}
+                    : Number(stats.co2_saved || 0).toFixed(2)}
                 </p>
               </div>
             </div>

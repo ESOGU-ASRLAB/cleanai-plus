@@ -349,6 +349,9 @@ class ExecutionService:
             energy_per_sample_j = (total_energy_j / total) if total > 0 else 0
             gflops = flops_per_sample / 1e9
             gflops_per_joule = (gflops * total / total_energy_j) if total_energy_j > 0 else 0
+            emissions_g = float(emissions_kg) * 1000
+            total_time_min = total_time_sec / 60
+            emissions_per_minute_g = (emissions_g / total_time_min) if total_time_min > 0 else 0
             
             # Format Helper
             def fmt(val):
@@ -369,7 +372,8 @@ class ExecutionService:
                 "energy_per_sample_j": fmt(energy_per_sample_j),
                 "gflops_per_sample": fmt(gflops),
                 "gflops_per_joule": fmt(gflops_per_joule),
-                "emissions": round(float(emissions_kg) * 1000, 6)  # Store in grams
+                "emissions": round(emissions_g, 6),  # Total emissions in grams
+                "emissions_per_min": round(emissions_per_minute_g, 6)  # Avg emissions per minute in grams
             }
             await execution.save()
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
