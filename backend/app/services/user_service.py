@@ -51,9 +51,9 @@ class UserService:
                  }}
              ]
              
-             # Try to run on 'Execution' collection
+             # Try to run on 'executions' collection
              try:
-                results = await self.db["Execution"].aggregate(pipeline).to_list(length=1)
+                results = await self.db["executions"].aggregate(pipeline).to_list(length=1)
                 if results:
                     execution_count = results[0].get("count", 0)
                     total_co2 = results[0].get("total_emissions", 0) or 0.0

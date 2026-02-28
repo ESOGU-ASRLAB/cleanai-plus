@@ -133,6 +133,10 @@ class ExecutionService:
             model = self._load_model_from_disk(model_doc, device, num_classes)
             model.eval()
 
+            # Enable cuDNN auto-tuner for better GPU throughput on fixed input sizes
+            if device.type == 'cuda':
+                torch.backends.cudnn.benchmark = True
+
             # 4. Prepare Data Loader & Inference Loop
             dataset_root = dataset_doc.path
 
@@ -197,100 +201,107 @@ class ExecutionService:
             all_targets = []
             all_preds = []
             all_probs = [] # List of probabilities for Top-K
-            
+
+            # Batched inference for better GPU utilization
+            batch_size = int(execution.config.get("batch_size", 32))
+            batch_tensors = []
+            batch_label_names = []
+            batch_sample_ids = []
+
+            def flush_batch():
+                nonlocal correct, total, loss_sum, flops_per_sample, processed_count
+                if not batch_tensors:
+                    return
+
+                input_batch = torch.stack(batch_tensors).to(device)
+
+                # Calculate FLOPs once on the first batch
+                if processed_count == 0 and thop and model:
+                    try:
+                        macs, _ = thop.profile(model, inputs=(input_batch[:1],), verbose=False)
+                        flops_per_sample = macs * 2
+                    except Exception as thop_e:
+                        print(f"THOP Warning: {thop_e}")
+
+                outputs = model(input_batch)
+                probs_batch = torch.nn.functional.softmax(outputs, dim=1)
+                _, predicted_batch = torch.max(outputs, 1)
+
+                for i, (lname, sid) in enumerate(zip(batch_label_names, batch_sample_ids)):
+                    if processed_count < 3:
+                        print(f"Sample: {sid}, Extracted Label: '{lname}'")
+
+                    target_idx = -1
+                    # Priority 1: Check explicit label map (folder_name -> integer index)
+                    if lname in label_map:
+                        try:
+                            target_idx = int(label_map[lname])
+                        except ValueError:
+                            print(f"Invalid index in label_map for {lname}: {label_map[lname]}")
+                    # Priority 2: Check standard class_to_idx mapping
+                    elif lname and lname in class_to_idx:
+                        target_idx = class_to_idx[lname]
+
+                    if target_idx >= 0:
+                        num_outputs = outputs.shape[1]
+                        if target_idx < num_outputs:
+                            target = torch.tensor([target_idx]).to(device)
+                            loss = criterion(outputs[i:i+1], target)
+                            loss_sum += loss.item()
+                            if predicted_batch[i].item() == target_idx:
+                                correct += 1
+                            all_targets.append(target_idx)
+                            all_preds.append(predicted_batch[i].item())
+                            all_probs.append(probs_batch[i].cpu().numpy())
+                        else:
+                            if processed_count < 5:
+                                print(f"Warning: Label '{lname}' (mapped to idx {target_idx}) is out of bounds for model output size {num_outputs}. Skipping loss calculation.")
+
+                    total += 1
+                    processed_count += 1
+
+                batch_tensors.clear()
+                batch_label_names.clear()
+                batch_sample_ids.clear()
+
             with torch.no_grad():
                 for sample_id, image, label_name in dataset_iterator:
-                    if processed_count < 3:
-                        print(f"Sample: {sample_id}, Extracted Label: '{label_name}'")
-
                     try:
-                        # Prepare Input
                         if image.mode != 'RGB':
                             image = image.convert('RGB')
-                        
-                        input_tensor = preprocess(image).unsqueeze(0).to(device)
-                        
-                        # Calculate FLOPs on first sample
-                        if processed_count == 0 and thop and model:
-                            try:
-                                macs, _ = thop.profile(model, inputs=(input_tensor, ), verbose=False)
-                                flops_per_sample = macs * 2
-                            except Exception as thop_e:
-                                print(f"THOP Warning: {thop_e}")
-                        
-                        # Inference
-                        outputs = model(input_tensor)
-                        
-                        # Get Prediction
-                        probs = torch.nn.functional.softmax(outputs, dim=1)
-                        _, predicted = torch.max(outputs, 1)
-                        
-                        # Calculate Metrics if label is known
-                        # If came from pickle, label_name might be actual name
-                        
-                        target_idx = -1
-                        
-                        # Priority 1: Check explicit label map (folder_name -> integer index)
-                        if label_name in label_map:
-                            try:
-                                target_idx = int(label_map[label_name])
-                            except ValueError:
-                                print(f"Invalid index in label_map for {label_name}: {label_map[label_name]}")
 
-                        # Priority 2: Check standard class_to_idx mapping
-                        elif label_name and label_name in class_to_idx:
-                            target_idx = class_to_idx[label_name]
+                        tensor = preprocess(image)
+                        batch_tensors.append(tensor)
+                        batch_label_names.append(label_name)
+                        batch_sample_ids.append(sample_id)
 
-                        if target_idx >= 0:
-                            num_outputs = outputs.shape[1]
-                            
-                            if target_idx < num_outputs:
-                                target = torch.tensor([target_idx]).to(device)
-                                loss = criterion(outputs, target)
-                                loss_sum += loss.item()
-                                
-                                if predicted.item() == target.item():
-                                    correct += 1
-                                
-                                # Collect for advanced metrics
-                                all_targets.append(target_idx)
-                                all_preds.append(predicted.item())
-                                all_probs.append(probs.cpu().numpy()[0]) # Store 1D array
-                            else:
-                                # Log warning for mismatches to avoid CUDA device-side assert errors
-                                if processed_count < 5: 
-                                    print(f"Warning: Label '{label_name}' (mapped to idx {target_idx}) is out of bounds for model output size {num_outputs}. Skipping loss calculation.")
-                        else:
-                             # If we can't resolve the label, we can't calculate accuracy/loss for this sample
-                             pass
-                        
-                        total += 1
-                        processed_count += 1
-                        
+                        if len(batch_tensors) >= batch_size:
+                            flush_batch()
+
                     except Exception as img_err:
                         err_str = str(img_err)
                         # Check for specific "Output size is too small" error which causes spam
                         if "Output size is too small" in err_str:
-                             raise Exception(f"Input image too small for model architecture. Please add a 'Resize' step (e.g., 224x224) to your Preprocessing configuration. PyTorch Error: {err_str}")
+                            raise Exception(f"Input image too small for model architecture. Please add a 'Resize' step (e.g., 224x224) to your Preprocessing configuration. PyTorch Error: {err_str}")
 
                         print(f"Error processing sample {sample_id}: {img_err}")
                         error_count += 1
                         if error_count > 10:
                             raise Exception(f"Aborting execution: Too many errors ({error_count}). Last error: {err_str}")
+
+                # Flush any remaining samples
+                flush_batch()
             
             end_time = time.perf_counter()
             total_time_sec = end_time - start_time
             
             total_energy_kwh = 0.0
+            emissions_kg = 0.0
             if tracker:
                 try:
-                    emissions = tracker.stop() # Returns emission in kg CO2 eq
-                    # Access detailed data
-                    # CodeCarbon >= 2.0 uses _final_emissions_data or similar internal storage depending on version
-                    # But tracker.stop() usually stops measurement.
-                    # We can get total energy from the tracker instance usually via `tracker.final_emissions_data.energy_consumed`
+                    emissions_kg = tracker.stop() or 0.0  # Returns emission in kg CO2 eq
                     if hasattr(tracker, 'final_emissions_data') and tracker.final_emissions_data:
-                         total_energy_kwh = tracker.final_emissions_data.energy_consumed
+                        total_energy_kwh = tracker.final_emissions_data.energy_consumed
                 except Exception as e:
                     print(f"Error stopping CodeCarbon tracker: {e}")
 
@@ -357,7 +368,8 @@ class ExecutionService:
                 "total_energy_j": fmt(total_energy_j),
                 "energy_per_sample_j": fmt(energy_per_sample_j),
                 "gflops_per_sample": fmt(gflops),
-                "gflops_per_joule": fmt(gflops_per_joule)
+                "gflops_per_joule": fmt(gflops_per_joule),
+                "emissions": round(float(emissions_kg), 8)
             }
             await execution.save()
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")

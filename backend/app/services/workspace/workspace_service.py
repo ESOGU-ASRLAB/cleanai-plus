@@ -94,13 +94,13 @@ class WorkspaceService:
         ]
         
         try:
-            results = await self.db["Execution"].aggregate(pipeline).to_list(length=1)
+            results = await self.db["executions"].aggregate(pipeline).to_list(length=1)
             if results:
                 executions_count = results[0].get("count", 0)
                 total_co2 = results[0].get("total_emissions", 0) or 0.0
         except:
             # Fallback if aggregation fails
-            executions_count = await self.db.Execution.count_documents({"workspace_id": oid})
+            executions_count = await self.db["executions"].count_documents({"workspace_id": oid})
         
         return {
             "models": models_count,
