@@ -106,5 +106,5 @@ class WorkspaceService:
             "models": models_count,
             "datasets": datasets_count,
             "executions": executions_count,
-            "co2_saved": total_co2
+            "co2_saved": total_co2 * 1000  # Convert kg to grams
         }

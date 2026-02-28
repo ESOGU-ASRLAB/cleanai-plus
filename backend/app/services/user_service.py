@@ -63,7 +63,7 @@ class UserService:
         return {
             "workspaces_count": workspace_count,
             "models_trained": execution_count,
-            "co2_saved": total_co2 # Placeholder logic
+            "co2_saved": total_co2 * 1000  # Convert kg to grams
         }
 
     async def get_user_activities(self, user_id: str, limit: int = 10) -> List[Dict]:

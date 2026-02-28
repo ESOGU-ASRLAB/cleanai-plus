@@ -644,7 +644,7 @@ const WorkspaceDetailPage = () => {
               <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-gray-500">
-                    CO2 Emissions (kg)
+                    CO2 Emissions (g)
                   </p>
                   <div className="p-2 bg-green-50 rounded-lg text-green-600">
                     <FiCloud size={18} />
@@ -653,7 +653,7 @@ const WorkspaceDetailPage = () => {
                 <p className="text-2xl font-bold text-gray-900 truncate">
                   {statsLoading
                     ? "..."
-                    : Number(stats.co2_saved || 0).toFixed(2)}
+                    : Number(stats.co2_saved || 0).toFixed(4)}
                 </p>
               </div>
             </div>
