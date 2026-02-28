@@ -378,6 +378,27 @@ class ExecutionService:
             await execution.save()
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
 
+            # --- Log activity ---
+            try:
+                from app.services.activity_service import ActivityService
+                workspace_doc = await db.workspaces.find_one({"_id": execution.workspace_id})
+                if workspace_doc:
+                    activity_svc = ActivityService(db)
+                    await activity_svc.log_activity(
+                        workspace_id=str(execution.workspace_id),
+                        user_id=str(workspace_doc["owner_id"]),
+                        action="execution_completed",
+                        details={
+                            "execution_id": execution_id,
+                            "model_name": model_doc.get("name", "Unknown"),
+                            "dataset_name": dataset_doc.name if dataset_doc else "Unknown",
+                            "accuracy": round(float(accuracy), 4),
+                            "f1_score": round(float(f1), 4),
+                        },
+                    )
+            except Exception as log_err:
+                print(f"Failed to log execution_completed activity: {log_err}")
+
             # 7. Generate Report
             pdf_path = None
             try:

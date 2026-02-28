@@ -7,6 +7,7 @@ import {
   FiFolder,
   FiUploadCloud,
   FiPlayCircle,
+  FiZap,
 } from "react-icons/fi";
 import { formatDistanceToNow } from "date-fns";
 
@@ -19,6 +20,10 @@ const getActivityIcon = (action) => {
   if (actionLower.includes("upload") && actionLower.includes("model"))
     return (
       <FiUploadCloud className="mt-1 mr-4 text-indigo-500 w-5 h-5 flex-shrink-0" />
+    );
+  if (actionLower.includes("optimization"))
+    return (
+      <FiZap className="mt-1 mr-4 text-purple-500 w-5 h-5 flex-shrink-0" />
     );
   if (actionLower.includes("execution") || actionLower.includes("started"))
     return (

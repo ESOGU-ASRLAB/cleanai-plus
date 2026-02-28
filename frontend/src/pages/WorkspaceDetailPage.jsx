@@ -7,6 +7,7 @@ import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
 import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
+import NetworkOptimizationTab from "../components/workspace/NetworkOptimizationTab";
 import WorkspaceSettingsTab from "../components/workspace/WorkspaceSettingsTab";
 import ActivityList from "../components/profile/ActivityList";
 import {
@@ -31,6 +32,7 @@ import {
   FiEye,
   FiCloud,
   FiPlus,
+  FiZap,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -560,6 +562,19 @@ const WorkspaceDetailPage = () => {
             <FiTerminal className="mr-2" /> Executions
           </button>
           <button
+            onClick={() => setActiveTab("optimization")}
+            className={`
+              pb-4 px-1 border-b-2 font-medium text-sm flex items-center
+              ${
+                activeTab === "optimization"
+                  ? "border-primary-500 text-primary-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }
+            `}
+          >
+            <FiZap className="mr-2" /> Network Optimization
+          </button>
+          <button
             onClick={() => setActiveTab("visualization")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -836,6 +851,12 @@ const WorkspaceDetailPage = () => {
           </div>
         )}
 
+        {activeTab === "optimization" && (
+          <div className="animate-fade-in">
+            <NetworkOptimizationTab workspace={workspace} />
+          </div>
+        )}
+
         {activeTab === "visualization" && (
           <div className="animate-fade-in">
             <NetworkVisualizationTab
@@ -901,12 +922,19 @@ const WorkspaceDetailPage = () => {
                         }`}
                       >
                         <div className="flex items-start justify-between mb-2">
-                          <h4
-                            className="font-medium text-gray-900 truncate"
-                            title={model.name}
-                          >
-                            {model.name}
-                          </h4>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4
+                              className="font-medium text-gray-900 truncate"
+                              title={model.name}
+                            >
+                              {model.name}
+                            </h4>
+                            {model.is_optimized && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                                Optimized
+                              </span>
+                            )}
+                          </div>
                           <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
                             {model.format}
                           </span>

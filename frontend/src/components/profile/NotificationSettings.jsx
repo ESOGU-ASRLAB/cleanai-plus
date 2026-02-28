@@ -7,6 +7,8 @@ const NotificationSettings = () => {
   const [settings, setSettings] = useState({
     execution_success: true,
     execution_failure: true,
+    optimization_success: true,
+    optimization_failure: true,
     marketing: false,
   });
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,8 @@ const NotificationSettings = () => {
         setSettings({
           execution_success: data.execution_success,
           execution_failure: data.execution_failure,
+          optimization_success: data.optimization_success ?? true,
+          optimization_failure: data.optimization_failure ?? true,
           marketing: data.marketing,
         });
       } catch (error) {
@@ -89,6 +93,12 @@ const NotificationSettings = () => {
       )}
 
       <div className="space-y-6">
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+            Executions
+          </p>
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-md font-medium text-gray-900">
@@ -144,10 +154,78 @@ const NotificationSettings = () => {
           </button>
         </div>
 
+        <div className="border-t border-gray-100 pt-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+            Network Optimization
+          </p>
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-md font-medium text-gray-900">
-              Marketing & Updates
+              Optimization Success
+            </h3>
+            <p className="text-sm text-gray-500">
+              Receive an email with pruning statistics when a network
+              optimization completes successfully.
+            </p>
+          </div>
+          <button
+            type="button"
+            className={`${
+              settings.optimization_success ? "bg-blue-600" : "bg-gray-200"
+            } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2`}
+            role="switch"
+            aria-checked={settings.optimization_success}
+            onClick={() => handleToggle("optimization_success")}
+          >
+            <span
+              aria-hidden="true"
+              className={`${
+                settings.optimization_success ? "translate-x-5" : "translate-x-0"
+              } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-md font-medium text-gray-900">
+              Optimization Failure
+            </h3>
+            <p className="text-sm text-gray-500">
+              Receive an email alert if a network optimization fails due to an
+              error.
+            </p>
+          </div>
+          <button
+            type="button"
+            className={`${
+              settings.optimization_failure ? "bg-blue-600" : "bg-gray-200"
+            } relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2`}
+            role="switch"
+            aria-checked={settings.optimization_failure}
+            onClick={() => handleToggle("optimization_failure")}
+          >
+            <span
+              aria-hidden="true"
+              className={`${
+                settings.optimization_failure ? "translate-x-5" : "translate-x-0"
+              } pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out`}
+            />
+          </button>
+        </div>
+
+        <div className="border-t border-gray-100 pt-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+            General
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-md font-medium text-gray-900">
+              Marketing &amp; Updates
             </h3>
             <p className="text-sm text-gray-500">
               Receive emails about new features, updates, and promotional

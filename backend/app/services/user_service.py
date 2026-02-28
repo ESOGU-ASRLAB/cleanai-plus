@@ -102,6 +102,8 @@ class UserService:
                 "user_id": ObjectId(user_id),
                 "execution_success": True,
                 "execution_failure": True,
+                "optimization_success": True,
+                "optimization_failure": True,
                 "marketing": False,
                 "updated_at": datetime.utcnow()
             }
