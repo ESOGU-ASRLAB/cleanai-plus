@@ -241,7 +241,11 @@ class ReportService:
 
             for k, v in items:
                 label_text = k.replace("_", " ").title()
-                value_text = str(v)
+                if k == "emissions":
+                    label_text = "CO2 Emissions (g)"
+                    value_text = f"{float(v):.6f}"
+                else:
+                    value_text = str(v)
                 
                 # Stack Label and Value
                 cell_content = [

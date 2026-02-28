@@ -63,7 +63,7 @@ class UserService:
         return {
             "workspaces_count": workspace_count,
             "models_trained": execution_count,
-            "co2_saved": total_co2 * 1000  # Convert kg to grams
+            "co2_saved": total_co2  # Already stored in grams in metrics.emissions
         }
 
     async def get_user_activities(self, user_id: str, limit: int = 10) -> List[Dict]:

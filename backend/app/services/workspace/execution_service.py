@@ -369,7 +369,7 @@ class ExecutionService:
                 "energy_per_sample_j": fmt(energy_per_sample_j),
                 "gflops_per_sample": fmt(gflops),
                 "gflops_per_joule": fmt(gflops_per_joule),
-                "emissions": round(float(emissions_kg), 8)
+                "emissions": round(float(emissions_kg) * 1000, 6)  # Store in grams
             }
             await execution.save()
             print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")

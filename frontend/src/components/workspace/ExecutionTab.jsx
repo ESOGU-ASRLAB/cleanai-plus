@@ -866,12 +866,14 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                             >
                               <p
                                 className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1 truncate"
-                                title={key.replace(/_/g, " ")}
+                                title={key === "emissions" ? "CO2 Emissions (g)" : key.replace(/_/g, " ")}
                               >
-                                {key.replace(/_/g, " ")}
+                                {key === "emissions" ? "CO2 Emissions (g)" : key.replace(/_/g, " ")}
                               </p>
                               <p className="text-lg font-bold text-primary-600">
-                                {typeof value === "number"
+                                {key === "emissions"
+                                  ? (typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(value))
+                                  : typeof value === "number"
                                   ? value.toLocaleString(undefined, {
                                       maximumFractionDigits: 4,
                                     })
