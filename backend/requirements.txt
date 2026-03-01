@@ -22,6 +22,8 @@ safetensors
 reportlab==4.0.9
 onnx
 scikit-learn
+matplotlib
+seaborn
 codecarbon
 thop
 torch-pruning

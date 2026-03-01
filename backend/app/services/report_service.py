@@ -1,9 +1,10 @@
 import os
+import io
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.graphics.shapes import Drawing, Rect, String, Polygon
 from beanie import PydanticObjectId
@@ -225,10 +226,16 @@ class ReportService:
             row = []
             
             # Sort metrics: Accuracy, Top5, Loss, Precision, Recall, F1, then others
+            _exclude_keys = {
+                "processed_samples",
+                "confusion_matrix", "confusion_matrix_labels",
+                "class_accuracy_top3", "class_accuracy_bottom3",
+                "topk_accuracies",
+            }
             priority = ["accuracy", "top5_accuracy", "loss", "precision", "recall", "f1_score"]
             items = [
-                x for x in execution.metrics.items() 
-                if x[0] != "processed_samples"
+                x for x in execution.metrics.items()
+                if x[0] not in _exclude_keys
             ]
             items.sort(key=lambda x: priority.index(x[0]) if x[0] in priority else 999)
             
@@ -281,7 +288,205 @@ class ReportService:
             elements.append(t_metrics)
         else:
              elements.append(Paragraph("No metrics available yet.", styles['Normal']))
-        
+
+        # 4. Confusion Matrix
+        cm_data   = execution.metrics.get("confusion_matrix")
+        cm_labels = execution.metrics.get("confusion_matrix_labels", [])
+        if cm_data and cm_labels:
+            n = len(cm_labels)
+            elements.append(Paragraph("4. Confusion Matrix", section_style))
+
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as _plt
+            import seaborn as _sns
+            import numpy as _np
+
+            _cm_array = _np.array(cm_data, dtype=float)
+            _do_plot  = False
+
+            if n > 20:
+                # Sub-matrix: top-3 best + bottom-3 worst classes
+                _top3_lbl    = [x["label"] for x in execution.metrics.get("class_accuracy_top3",    [])]
+                _bottom3_lbl = [x["label"] for x in execution.metrics.get("class_accuracy_bottom3", [])]
+                _seen, _subset_labels = set(), []
+                for _lbl in _top3_lbl + _bottom3_lbl:
+                    if _lbl not in _seen:
+                        _seen.add(_lbl)
+                        _subset_labels.append(_lbl)
+                _lbl_to_idx  = {_l: _i for _i, _l in enumerate(cm_labels)}
+                _sub_indices = [_lbl_to_idx[_l] for _l in _subset_labels if _l in _lbl_to_idx]
+                if not _sub_indices:
+                    elements.append(Paragraph(
+                        f"The confusion matrix has {n} classes and is too large to render.",
+                        styles['Normal']
+                    ))
+                else:
+                    _ix       = _np.array(_sub_indices)
+                    _cm_plot  = _cm_array[_np.ix_(_ix, _ix)]
+                    _lbl_plot = [cm_labels[_i] for _i in _sub_indices]
+                    elements.append(Paragraph(
+                        f"Full matrix has {n} classes. "
+                        f"Showing {len(_sub_indices)}×{len(_sub_indices)} sub-matrix "
+                        f"for the best and worst performing classes.",
+                        styles['Normal']
+                    ))
+                    elements.append(Spacer(1, 6))
+                    _do_plot = True
+            else:
+                _cm_plot  = _cm_array
+                _lbl_plot = cm_labels
+                _do_plot  = True
+
+            if _do_plot:
+                _row_sums = _cm_plot.sum(axis=1, keepdims=True)
+                _cm_norm  = _np.where(_row_sums > 0, _cm_plot / _row_sums, 0.0)
+
+                _sz  = max(4, len(_lbl_plot) * 0.75)
+                _fig, _ax = _plt.subplots(figsize=(_sz, _sz * 0.88))
+                _sns.heatmap(
+                    _cm_norm,
+                    annot=_cm_plot.astype(int),
+                    fmt="d",
+                    cmap="Blues",
+                    xticklabels=_lbl_plot,
+                    yticklabels=_lbl_plot,
+                    linewidths=0.4,
+                    linecolor="#e5e7eb",
+                    cbar=True,
+                    ax=_ax,
+                    annot_kws={"size": max(6, 10 - len(_lbl_plot) // 3)},
+                )
+                _ax.set_xlabel("Predicted", fontsize=10)
+                _ax.set_ylabel("Actual",    fontsize=10)
+                _tick_fs = max(6, 9 - len(_lbl_plot) // 4)
+                _ax.tick_params(axis='x', rotation=45, labelsize=_tick_fs)
+                _ax.tick_params(axis='y', rotation=0,  labelsize=_tick_fs)
+                _plt.tight_layout()
+
+                _buf = io.BytesIO()
+                _fig.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
+                _plt.close(_fig)
+                _buf.seek(0)
+
+                _img_w = 450.0
+                _img_h = _img_w * 0.88
+                elements.append(RLImage(_buf, width=_img_w, height=_img_h))
+                elements.append(Spacer(1, 6))
+                _cm_note_sty = ParagraphStyle('CmNote', parent=styles['Italic'],
+                                              fontSize=8, textColor=colors.gray)
+                elements.append(Paragraph(
+                    "Rows = actual · Columns = predicted · "
+                    "Colour intensity = row-normalised recall · "
+                    "Cell values = sample counts.",
+                    _cm_note_sty
+                ))
+                elements.append(Spacer(1, 10))
+        # 5. Class-wise Accuracy (Top 3 & Bottom 3)
+        top3    = execution.metrics.get("class_accuracy_top3",    [])
+        bottom3 = execution.metrics.get("class_accuracy_bottom3", [])
+        if top3 or bottom3:
+            elements.append(Paragraph("5. Class-wise Accuracy", section_style))
+
+            C_BAR_GOOD = colors.HexColor('#10b981')  # green / correct
+            C_BAR_BAD  = colors.HexColor('#ef4444')  # red   / worst
+            C_BAR_BG   = colors.HexColor('#e5e7eb')  # track bg
+
+            lbl_sty_ca = ParagraphStyle('CAlbl', parent=styles['Normal'], fontSize=9)
+            val_sty_ca = ParagraphStyle('CAval', parent=styles['Normal'], fontSize=9, alignment=2)
+            BAR_W = 260  # max bar width (pt)
+
+            def ca_rows(items, bar_color, heading):
+                """Build table rows for a group (top / bottom)."""
+                rows = []
+                header_p = Paragraph(f"<b>{heading}</b>",
+                                     ParagraphStyle('CAh', parent=styles['Normal'], fontSize=9,
+                                                   textColor=colors.HexColor('#374151')))
+                rows.append([header_p, '', ''])
+                for item in items:
+                    pct  = item['accuracy'] * 100
+                    fill = int(BAR_W * item['accuracy'])
+                    rest = BAR_W - fill
+
+                    bar_d = Drawing(BAR_W, 14)
+                    bar_d.add(Rect(0, 3, BAR_W, 8, fillColor=C_BAR_BG, strokeColor=None))
+                    if fill > 0:
+                        bar_d.add(Rect(0, 3, fill, 8, fillColor=bar_color, strokeColor=None))
+                    rows.append([
+                        Paragraph(item['label'], lbl_sty_ca),
+                        bar_d,
+                        Paragraph(f"{pct:.1f}%", val_sty_ca),
+                    ])
+                return rows
+
+            ca_data = []
+            if top3:
+                ca_data += ca_rows(top3, C_BAR_GOOD, "⬆ Top classes")
+            if bottom3:
+                ca_data += ca_rows(bottom3, C_BAR_BAD, "⬇ Bottom classes")
+
+            ca_table = Table(ca_data, colWidths=[110, BAR_W, 50])
+            ca_table.setStyle(TableStyle([
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('SPAN',          (0, 0), (-1,  0), ),  # heading row spans all cols
+                ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#f3f4f6')),
+            ]))
+
+            # Reuse header logic for bottom3 group header row (2nd group starts after top3+1)
+            if top3 and bottom3:
+                hdr2_row = len(top3) + 1   # 0-based index of bottom group header
+                ca_table.setStyle(TableStyle([
+                    ('SPAN',       (0, hdr2_row), (-1, hdr2_row)),
+                    ('BACKGROUND', (0, hdr2_row), (-1, hdr2_row), colors.HexColor('#f3f4f6')),
+                ]))
+
+            elements.append(ca_table)
+            elements.append(Spacer(1, 10))
+
+        # 6. Top-K Accuracy
+        topk = execution.metrics.get("topk_accuracies")
+        if topk:
+            elements.append(Paragraph("6. Top-K Accuracy", section_style))
+
+            C_TOPK_BAR = colors.HexColor('#6366f1')  # indigo
+            C_TOPK_BG  = colors.HexColor('#e5e7eb')
+            TOPK_BAR_W = 300
+
+            lbl_tk = ParagraphStyle('TKlbl', parent=styles['Normal'], fontSize=9)
+            val_tk = ParagraphStyle('TKval', parent=styles['Normal'], fontSize=9, alignment=2)
+
+            topk_rows = [[
+                Paragraph("<b>K</b>", lbl_tk),
+                Paragraph("<b>Accuracy</b>", lbl_tk),
+                Paragraph("", lbl_tk),
+            ]]
+            for k in sorted(topk.keys(), key=int):
+                acc = float(topk[k])
+                fill = int(TOPK_BAR_W * acc)
+                bar_d = Drawing(TOPK_BAR_W, 14)
+                bar_d.add(Rect(0, 3, TOPK_BAR_W, 8, fillColor=C_TOPK_BG, strokeColor=None))
+                if fill > 0:
+                    bar_d.add(Rect(0, 3, fill, 8, fillColor=C_TOPK_BAR, strokeColor=None))
+                topk_rows.append([
+                    Paragraph(f"Top-{k}", lbl_tk),
+                    bar_d,
+                    Paragraph(f"{acc*100:.1f}%", val_tk),
+                ])
+
+            topk_table = Table(topk_rows, colWidths=[55, TOPK_BAR_W, 50])
+            topk_table.setStyle(TableStyle([
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#f3f4f6')),
+                ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+                ('GRID',          (0, 0), (-1, -1), 0.3, colors.HexColor('#e5e7eb')),
+            ]))
+            elements.append(topk_table)
+            elements.append(Spacer(1, 10))
+
         # Footer Note
         elements.append(Spacer(1, 40))
         note_style = ParagraphStyle('Note', parent=styles['Italic'], fontSize=9, textColor=colors.gray)

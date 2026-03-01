@@ -1026,7 +1026,12 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                           .filter(
                             ([key]) =>
                               key !== "dataset_size" &&
-                              key !== "processed_samples",
+                              key !== "processed_samples" &&
+                              key !== "confusion_matrix" &&
+                              key !== "confusion_matrix_labels" &&
+                              key !== "class_accuracy_top3" &&
+                              key !== "class_accuracy_bottom3" &&
+                              key !== "topk_accuracies",
                           )
                           .sort((a, b) => {
                             const order = [
@@ -1076,6 +1081,83 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                       </div>
                     )}
                   </div>
+
+                  {/* Top-K Accuracy Bar Chart */}
+                  {selectedExecution.metrics?.topk_accuracies &&
+                    Object.keys(selectedExecution.metrics.topk_accuracies).length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                        <FiActivity className="mr-2" /> Top-K Accuracy
+                      </h5>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2">
+                        {Object.entries(selectedExecution.metrics.topk_accuracies)
+                          .sort((a, b) => Number(a[0]) - Number(b[0]))
+                          .map(([k, acc]) => (
+                            <div key={k} className="flex items-center gap-3">
+                              <span className="text-xs font-semibold text-gray-500 w-12 flex-shrink-0">
+                                Top-{k}
+                              </span>
+                              <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                                <div
+                                  className="bg-indigo-500 h-3 rounded-full transition-all duration-500"
+                                  style={{ width: `${(Number(acc) * 100).toFixed(1)}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-semibold text-indigo-700 w-12 text-right tabular-nums">
+                                {(Number(acc) * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Class-wise Accuracy Bar Chart */}
+                  {(selectedExecution.metrics?.class_accuracy_top3?.length > 0 ||
+                    selectedExecution.metrics?.class_accuracy_bottom3?.length > 0) && (
+                    <div className="mt-4">
+                      <h5 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                        <FiActivity className="mr-2" /> Class-wise Accuracy
+                      </h5>
+                      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+                        {[{
+                          label: "\u2B06 Top classes",
+                          items: selectedExecution.metrics.class_accuracy_top3 || [],
+                          barColor: "bg-emerald-500",
+                          textColor: "text-emerald-700",
+                        }, {
+                          label: "\u2B07 Bottom classes",
+                          items: selectedExecution.metrics.class_accuracy_bottom3 || [],
+                          barColor: "bg-red-400",
+                          textColor: "text-red-700",
+                        }].map(({ label, items, barColor, textColor }) =>
+                          items.length > 0 && (
+                            <div key={label}>
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{label}</p>
+                              <div className="space-y-2">
+                                {items.map((item) => (
+                                  <div key={item.label} className="flex items-center gap-3">
+                                    <span className="text-xs text-gray-600 w-24 truncate flex-shrink-0" title={item.label}>
+                                      {item.label}
+                                    </span>
+                                    <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                                      <div
+                                        className={`${barColor} h-3 rounded-full transition-all duration-500`}
+                                        style={{ width: `${(item.accuracy * 100).toFixed(1)}%` }}
+                                      />
+                                    </div>
+                                    <span className={`text-xs font-semibold w-12 text-right tabular-nums ${textColor}`}>
+                                      {(item.accuracy * 100).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -19,7 +19,7 @@ from app.models.ai_model import ModelFormat
 from app.schemas.execution import ExecutionCreate
 from app.database.mongodb import get_database
 
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix as sk_confusion_matrix
 from typing import Dict
 
 # In-memory progress tracking: execution_id -> progress percentage (0-100)
@@ -490,15 +490,19 @@ class ExecutionService:
         )
 
         top5_acc = 0.0
+        topk_accuracies = {}   # k -> accuracy
         if len(all_targets) > 0 and len(all_probs) > 0:
-            top5_correct = 0
-            for i, target in enumerate(all_targets):
-                probs = all_probs[i]
-                k = min(5, len(probs))
-                top_k_indices = probs.argsort()[-k:][::-1]
-                if target in top_k_indices:
-                    top5_correct += 1
-            top5_acc = top5_correct / len(all_targets)
+            n_classes = len(all_probs[0]) if len(all_probs) > 0 else 0
+            for k in range(1, 6):
+                effective_k = min(k, n_classes) if n_classes > 0 else k
+                k_correct = 0
+                for i, target in enumerate(all_targets):
+                    probs = all_probs[i]
+                    top_k_indices = probs.argsort()[-effective_k:][::-1]
+                    if target in top_k_indices:
+                        k_correct += 1
+                topk_accuracies[k] = round(k_correct / len(all_targets), 4)
+            top5_acc = topk_accuracies.get(5, 0.0)
 
         real_total_size = (
             dataset_doc.file_count
@@ -534,6 +538,41 @@ class ExecutionService:
             "emissions": round(emissions_g, 6),
             "emissions_per_min": round(emissions_per_minute_g, 6),
         }
+
+        if topk_accuracies:
+            metrics["topk_accuracies"] = topk_accuracies
+
+        # Confusion matrix
+        if len(all_targets) > 0 and len(all_preds) > 0:
+            present_labels = sorted(set(all_targets) | set(all_preds))
+            cm = sk_confusion_matrix(all_targets, all_preds, labels=present_labels)
+            cm_class_names = [
+                model_classes[i] if i < len(model_classes) else str(i)
+                for i in present_labels
+            ]
+            metrics["confusion_matrix"] = cm.tolist()
+            metrics["confusion_matrix_labels"] = cm_class_names
+
+            # Per-class accuracy from confusion matrix diagonal
+            per_class_acc = []
+            for idx, row in enumerate(cm.tolist()):
+                row_sum = sum(row)
+                if row_sum > 0:
+                    acc = round(row[idx] / row_sum, 4)
+                    per_class_acc.append({"label": cm_class_names[idx], "accuracy": acc})
+
+            if per_class_acc:
+                sorted_acc = sorted(per_class_acc, key=lambda x: x["accuracy"], reverse=True)
+                n_cls = len(sorted_acc)
+                top_n = min(3, n_cls)
+                top3 = sorted_acc[:top_n]
+                top3_labels = {x["label"] for x in top3}
+                bottom_candidates = list(reversed(sorted_acc[-min(3, n_cls):]))
+                bottom3 = [x for x in bottom_candidates if x["label"] not in top3_labels]
+                if not bottom3:  # fewer than 6 classes — no non-overlapping bottom
+                    bottom3 = bottom_candidates
+                metrics["class_accuracy_top3"]    = top3
+                metrics["class_accuracy_bottom3"] = bottom3
 
         return {"metrics": metrics, "accuracy": accuracy, "f1": float(f1)}
 
