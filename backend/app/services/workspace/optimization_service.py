@@ -22,6 +22,9 @@ from app.services.email_service import send_optimization_result_email
 _optimization_cancelled: set = set()
 # Tracks actively running optimization threads (cleared on completion/failure)
 _optimization_running: set = set()
+# In-memory progress tracking: optimization_id -> {"progress": int, "message": str}
+# Updated throughout the async pipeline and the sync pruning thread.
+_optimization_progress: Dict[str, Dict] = {}
 
 
 class OptimizationService:
@@ -71,6 +74,10 @@ class OptimizationService:
             await optimization.save()
             _optimization_cancelled.discard(optimization_id)
         return True
+
+    def get_progress(self, optimization_id: str) -> Dict:
+        """Return current progress info: {progress: 0-100, message: str}."""
+        return _optimization_progress.get(optimization_id, {"progress": 0, "message": "Waiting to start…"})
 
     async def get_model_layers(self, workspace_id: str, model_id: str) -> List[Dict[str, str]]:
         """Load a PyTorch model and return its prunable named layers."""
@@ -131,6 +138,7 @@ class OptimizationService:
                 raise InterruptedError("Cancelled by user.")
 
             _optimization_running.add(optimization_id)
+            _optimization_progress[optimization_id] = {"progress": 1, "message": "Initializing…"}
             db = await get_database()
 
             # --- Fetch resources ---
@@ -173,6 +181,39 @@ class OptimizationService:
             ignored_layer_names: List[str] = config.get("ignored_layer_names", [])
             ignore_head = bool(config.get("ignore_head", True))
             taylor_num_samples = max(1, int(config.get("taylor_num_samples", 1)))
+            taylor_batch_size = max(1, int(config.get("taylor_batch_size", 1)))
+
+            # ------------------------------------------------------------------ #
+            # Proportional progress: count every unit of work up front so the
+            # bar advances smoothly from 1 % to 99 % with no hardcoded jumps.
+            #
+            # Fixed units (always present, 10 total):
+            #   outer: A1(init) A2(examples) A5(load) A6(post-pruning) A7(save)
+            #   inner: B1(baseline) B2(criterion) B5(pruner) B6…(steps) B7(stats)
+            # Variable units:
+            #   _collect_units : real file-reads   (taylor_num_samples, taylor only)
+            #   A4             : 1 extra advance after collection  (taylor only)
+            #   _cal_units     : backward/forward passes  (N for taylor, 1 for activation)
+            # ------------------------------------------------------------------ #
+            _collect_units = taylor_num_samples if importance_type == "taylor" else 0
+            _cal_units = (
+                taylor_num_samples if importance_type == "taylor"
+                else (1 if importance_type == "activation" else 0)
+            )
+            _total_units = (
+                10
+                + _collect_units
+                + (1 if importance_type == "taylor" else 0)   # A4
+                + _cal_units
+                + iterative_steps
+            )
+            _done = [0]
+
+            def _advance(n: int = 1, msg: str = ""):
+                """Increment work counter and update live progress (1–99%)."""
+                _done[0] += n
+                pct = max(1, min(99, round(_done[0] / _total_units * 99)))
+                _optimization_progress[optimization_id] = {"progress": pct, "message": msg}
 
             device = torch.device(device_str)
             if device_str == "cuda" and not torch.cuda.is_available():
@@ -181,7 +222,8 @@ class OptimizationService:
 
             loop = asyncio.get_running_loop()
 
-            # --- Get example inputs ---
+            # --- A1: Get example inputs ---
+            _advance(1, "Preparing example inputs…")
             example_inputs, num_classes = await loop.run_in_executor(
                 None,
                 self._get_example_inputs,
@@ -192,10 +234,10 @@ class OptimizationService:
                 config,
             )
 
-            # --- Get calibration samples for Taylor gradient pass ---
-            # Only collected when Taylor importance is selected; avoids unnecessary I/O otherwise.
+            # --- A2 + collect: Calibration sample collection (Taylor only) ---
             calibration_inputs = None
-            if importance_type == "taylor" and taylor_num_samples > 1:
+            if importance_type == "taylor":
+                _advance(1, f"Collecting {taylor_num_samples} calibration sample(s)…")
                 calibration_inputs = await loop.run_in_executor(
                     None,
                     self._get_calibration_samples,
@@ -205,13 +247,19 @@ class OptimizationService:
                     config,
                     taylor_num_samples,
                     example_inputs,
+                    optimization_id,
+                    lambda msg: _advance(1, msg),
                 )
+                _advance(1, "Loading model…")  # A4: collection done
+            else:
+                _advance(1, "Loading model…")  # A2: examples done (no cal)
 
-            # --- Load model ---
+            # --- A5: Load model ---
             model = await loop.run_in_executor(
                 None, self._load_pytorch_model, model_doc, device, num_classes
             )
             model.eval()
+            _advance(1, "Analyzing model structure…")
 
             # --- Resolve ignored layers by name ---
             named_modules = dict(model.named_modules())
@@ -236,10 +284,18 @@ class OptimizationService:
                 ignore_head,
                 optimization_id,
                 calibration_inputs,
+                _advance,
+                taylor_batch_size,
             )
+
+            # Cancel may have arrived while _run_pruning was executing its last step
+            if optimization_id in _optimization_cancelled:
+                raise InterruptedError("Cancelled by user.")
 
             pruned_model = result["model"]
             stats = result["stats"]
+
+            _advance(1, "Saving pruned model…")  # A6: pruning done
 
             # --- Save pruned model ---
             workspace_id_str = str(optimization.workspace_id)
@@ -281,6 +337,7 @@ class OptimizationService:
                 "updated_at": datetime.utcnow(),
             }
             await db.ai_models.insert_one(new_model_dict)
+            _advance(1, "Finalizing…")  # A7: model saved
 
             # --- Update optimization record ---
             optimization.status = OptimizationStatus.COMPLETED
@@ -306,6 +363,8 @@ class OptimizationService:
                 f"({stats.get('param_reduction_pct',0):.1f}% reduction)"
             )
             _optimization_cancelled.discard(optimization_id)
+            _optimization_progress.pop(optimization_id, None)
+            _optimization_running.discard(optimization_id)
 
             # --- Log activity ---
             try:
@@ -369,6 +428,7 @@ class OptimizationService:
                 traceback.print_exc()
             _optimization_cancelled.discard(optimization_id)
             _optimization_running.discard(optimization_id)
+            _optimization_progress.pop(optimization_id, None)
 
             if isinstance(e, InterruptedError):
                 optimization.status = OptimizationStatus.CANCELLED
@@ -492,11 +552,13 @@ class OptimizationService:
         config: dict,
         n: int,
         fallback_input: torch.Tensor,
+        optimization_id: str = "",
+        on_sample=None,
     ) -> List[torch.Tensor]:
-        """Return up to *n* individual tensors from the dataset for gradient accumulation.
+        """Return exactly *n* tensors for gradient accumulation.
 
-        Falls back to repeating *fallback_input* (single random/first-image tensor)
-        when no dataset is available or fewer than *n* images are found.
+        Calls on_sample(msg) once per sample so the caller can advance a
+        proportional progress counter. Works for both dataset images and fallback.
         """
         from PIL import Image
 
@@ -511,20 +573,26 @@ class OptimizationService:
                 for file in files:
                     if len(samples) >= n:
                         break
+                    if optimization_id and optimization_id in _optimization_cancelled:
+                        break
                     if os.path.splitext(file)[1].lower() in valid_extensions:
                         try:
                             img = Image.open(os.path.join(root, file))
                             if img.mode != "RGB":
                                 img = img.convert("RGB")
                             samples.append(preprocess(img).unsqueeze(0).to(device))
+                            if on_sample:
+                                on_sample(f"Collecting calibration samples: {len(samples)} / {n}…")
                         except Exception:
                             continue
-                if len(samples) >= n:
+                if len(samples) >= n or (optimization_id and optimization_id in _optimization_cancelled):
                     break
 
-        # Pad with the fallback (first image / random tensor) if not enough real images
+        # Pad with fallback — still call on_sample so counter advances correctly
         while len(samples) < n:
             samples.append(fallback_input)
+            if on_sample:
+                on_sample(f"Collecting calibration samples: {len(samples)} / {n}…")
 
         return samples
 
@@ -705,7 +773,13 @@ class OptimizationService:
         ignore_head: bool = True,
         optimization_id: str = "",
         calibration_inputs: Optional[List[torch.Tensor]] = None,
+        progress_callback=None,
+        taylor_batch_size: int = 1,
     ) -> Dict[str, Any]:
+
+        def _report(n: int, msg: str):
+            if progress_callback:
+                progress_callback(n, msg)
         """Apply torch-pruning structural pruning to the model."""
         try:
             import torch_pruning as tp
@@ -715,7 +789,7 @@ class OptimizationService:
                 "Please install it with: pip install torch-pruning"
             )
 
-        # Measure baseline stats
+        # Measure baseline stats — B1
         try:
             base_macs, base_params = tp.utils.count_ops_and_params(
                 model, example_inputs
@@ -724,6 +798,7 @@ class OptimizationService:
             print(f"Warning: Could not count base ops/params: {e}")
             base_macs = 0
             base_params = int(sum(p.numel() for p in model.parameters()))
+        _report(1, "Building importance criterion…")  # B1: baseline done
 
         # ------------------------------------------------------------------ #
         # Build importance criterion
@@ -756,10 +831,15 @@ class OptimizationService:
         elif importance_type == "taylor":
             imp = tp.importance.TaylorImportance()
         else:
-            # Unknown criterion → fall back to L1 magnitude
             print(f"Warning: Unknown importance_type '{importance_type}', falling back to magnitude_l1.")
             imp = tp.importance.MagnitudeImportance(p=1)
             gradient_based = False
+
+        # B2: criterion done — announce next stage
+        if gradient_based or activation_based:
+            _report(1, "Running calibration pass…")
+        else:
+            _report(1, f"Building pruner for {iterative_steps} pruning step(s)…")
 
         # ------------------------------------------------------------------ #
         # Build ignored_layers list
@@ -789,24 +869,40 @@ class OptimizationService:
             PrunerClass = tp.pruner.BasePruner  # same as MetaPruner / MagnitudePruner
 
         # ------------------------------------------------------------------ #
-        # For Taylor importance: run one calibration forward-backward pass
-        # so that .grad attributes are populated before the pruner reads them.
-        # For Activation importance: run a calibration forward pass inside the
-        # compute_importance context manager to populate _importance attributes.
-        # ------------------------------------------------------------------ #
+        # Calibration passes (before pruner is built)
         if gradient_based:
-            # Use calibration_inputs (N real images) when available; fall back to
-            # the single example_inputs. Gradients are accumulated across all samples
-            # so the importance scores are averaged over the provided data distribution.
             cal_inputs = calibration_inputs if calibration_inputs else [example_inputs]
+            n_total = len(cal_inputs)
             model.train()
             model.zero_grad()
             try:
-                for inp in cal_inputs:
-                    output = model(inp)
-                    # Surrogate scalar loss: sum of logits (no labels needed)
+                for sample_idx, sample in enumerate(cal_inputs):
+                    # Check cancellation before every sample
+                    if optimization_id and optimization_id in _optimization_cancelled:
+                        raise InterruptedError("Cancelled by user.")
+                    # Process one sample at a time to avoid CUDA OOM.
+                    # TaylorImportance reads .grad which accumulates across all
+                    # samples — zero_grad is NOT called between samples intentionally.
+                    output = model(sample)  # sample is already [1, C, H, W]
                     loss = output.sum()
                     loss.backward()
+                    # Free activation memory immediately after each backward
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
+                    processed = sample_idx + 1
+                    _report(1, f"Calibration: {processed} / {n_total} samples processed…")  # B3
+            except InterruptedError:
+                raise
+            except (RuntimeError, torch.cuda.OutOfMemoryError if hasattr(torch.cuda, 'OutOfMemoryError') else RuntimeError) as e:
+                if "out of memory" in str(e).lower():
+                    raise Exception(
+                        f"CUDA out of memory during Taylor calibration pass. "
+                        "Try reducing 'Calibration Samples', switching device to CPU, or choosing a different importance criterion."
+                    )
+                raise Exception(
+                    f"Taylor importance requires a gradient pass, which failed: {e}. "
+                    "Make sure your model is compatible or choose a different importance criterion."
+                )
             except Exception as e:
                 raise Exception(
                     f"Taylor importance requires a gradient pass, which failed: {e}. "
@@ -815,6 +911,8 @@ class OptimizationService:
             model.eval()
 
         if activation_based:
+            if optimization_id and optimization_id in _optimization_cancelled:
+                raise InterruptedError("Cancelled by user.")
             model.eval()
             try:
                 with imp.compute_importance(model):
@@ -825,6 +923,7 @@ class OptimizationService:
                     f"Activation importance calibration forward pass failed: {e}. "
                     "Make sure your model is compatible or choose a different importance criterion."
                 )
+            _report(1, f"Building pruner for {iterative_steps} pruning step(s)…")  # B4: activation cal done
 
         # ------------------------------------------------------------------ #
         # Build pruner and run iterative pruning steps
@@ -844,10 +943,20 @@ class OptimizationService:
             pruner_kwargs["group_lasso"] = bn_scale_group_lasso
         try:
             pruner = PrunerClass(model, example_inputs, **pruner_kwargs)
-            for _ in range(iterative_steps):
+            _report(1, f"Pruning: step 1 / {iterative_steps}…")  # B5: pruner built
+            for step_idx in range(iterative_steps):
                 if optimization_id and optimization_id in _optimization_cancelled:
                     raise InterruptedError("Cancelled by user.")
                 pruner.step()
+                # Check AFTER the step too
+                if optimization_id and optimization_id in _optimization_cancelled:
+                    raise InterruptedError("Cancelled by user.")
+                next_msg = (
+                    f"Pruning: step {step_idx + 2} / {iterative_steps}…"
+                    if step_idx + 1 < iterative_steps
+                    else "Measuring compression statistics…"
+                )
+                _report(1, next_msg)  # B6
         except InterruptedError:
             raise
         except Exception as e:
@@ -857,9 +966,7 @@ class OptimizationService:
                 "Try a lower pruning ratio or a different importance criterion."
             )
 
-        # ------------------------------------------------------------------ #
-        # Measure pruned stats
-        # ------------------------------------------------------------------ #
+        # Measure pruned stats — B7
         model.eval()
         try:
             pruned_macs, pruned_params = tp.utils.count_ops_and_params(
@@ -869,6 +976,7 @@ class OptimizationService:
             print(f"Warning: Could not count pruned ops/params: {e}")
             pruned_macs = 0
             pruned_params = int(sum(p.numel() for p in model.parameters()))
+        _report(1, "Saving model…")  # B7: stats done
 
         param_reduction_pct = (
             round((1 - pruned_params / max(base_params, 1)) * 100, 2)

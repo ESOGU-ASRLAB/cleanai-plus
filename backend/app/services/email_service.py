@@ -568,8 +568,8 @@ def send_optimization_result_email(
 
             <div class="config-box">
                 <strong style="font-size:13px;color:#374151;">Pruning Config</strong>
-                <div class="config-row"><span style="color:#6b7280;">Pruning Ratio</span><span>{pruning_ratio}</span></div>
-                <div class="config-row"><span style="color:#6b7280;">Importance Criterion</span><span>{importance}</span></div>
+                <div class="config-row"><span style="color:#6b7280;">Pruning Ratio: </span><span>{pruning_ratio}</span></div>
+                <div class="config-row"><span style="color:#6b7280;">Importance Criterion: </span><span>{importance}</span></div>
             </div>
 
             <div style="text-align: center;">

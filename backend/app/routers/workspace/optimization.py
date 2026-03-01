@@ -85,3 +85,24 @@ async def cancel_optimization(
             detail="Optimization is not in a cancellable state.",
         )
     return {"message": "Cancellation requested.", "optimization_id": optimization_id}
+
+
+@router.get("/{optimization_id}/progress")
+async def get_optimization_progress(
+    workspace_id: str,
+    optimization_id: str,
+    current_user: User = Depends(get_current_user),
+    service: OptimizationService = Depends(get_optimization_service),
+):
+    """Return the live progress (0-100) and current stage message for a running optimization."""
+    opt = await service.get_optimization(optimization_id)
+    if not opt or str(opt.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Optimization not found")
+
+    if opt.status == OptimizationStatus.COMPLETED:
+        return {"progress": 100, "message": "Completed", "status": opt.status}
+    if opt.status in (OptimizationStatus.FAILED, OptimizationStatus.CANCELLED):
+        return {"progress": 0, "message": opt.error_message or str(opt.status), "status": opt.status}
+
+    info = service.get_progress(optimization_id)
+    return {"progress": info.get("progress", 0), "message": info.get("message", ""), "status": opt.status}

@@ -131,6 +131,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
     bn_scale_reg: 0.00001,
     bn_scale_group_lasso: false,
     taylor_num_samples: 16,
+    taylor_batch_size: 4,
     ignore_head: true,
     ignored_layer_names: [],
   });
@@ -139,6 +140,9 @@ const NetworkOptimizationTab = ({ workspace }) => {
   const [modelLayers, setModelLayers] = useState([]);
   const [layersLoading, setLayersLoading] = useState(false);
   const [ignoredLayersOpen, setIgnoredLayersOpen] = useState(false);
+
+  // Live progress map for running/pending optimizations: { [id]: { progress, message } }
+  const [optProgress, setOptProgress] = useState({});
 
   // Resource lists
   const [models, setModels] = useState([]);
@@ -206,6 +210,40 @@ const NetworkOptimizationTab = ({ workspace }) => {
     return () => clearInterval(interval);
   }, [optimizations, fetchOptimizations]);
 
+  // Poll /progress for all running/pending optimizations
+  useEffect(() => {
+    const running = optimizations.filter(
+      (o) => o.status === "pending" || o.status === "running",
+    );
+    if (running.length === 0) return;
+
+    const poll = async () => {
+      const updates = {};
+      await Promise.all(
+        running.map(async (o) => {
+          const optId = o.id || o._id;
+          try {
+            const res = await fetch(
+              `http://localhost:8000/api/workspaces/${workspaceId}/optimizations/${optId}/progress`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              updates[optId] = { progress: data.progress ?? 0, message: data.message ?? "" };
+            }
+          } catch {
+            /* ignore transient errors */
+          }
+        }),
+      );
+      setOptProgress((prev) => ({ ...prev, ...updates }));
+    };
+
+    poll();
+    const interval = setInterval(poll, 800);
+    return () => clearInterval(interval);
+  }, [optimizations, workspaceId, token]);
+
   // Fetch layer list when model is selected
   useEffect(() => {
     if (!selectedModel) {
@@ -255,6 +293,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
       bn_scale_reg: 0.00001,
       bn_scale_group_lasso: false,
       taylor_num_samples: 16,
+      taylor_batch_size: 4,
       ignore_head: true,
       ignored_layer_names: [],
     });
@@ -725,66 +764,69 @@ const NetworkOptimizationTab = ({ workspace }) => {
             </button>
           </div>
 
-          {/* Isomorphic */}
-          <div className="flex items-start justify-between gap-4 py-1">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Isomorphic
-              </label>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Apply the same pruning ratio uniformly to every layer (useful for symmetric architectures).
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setConfig({ ...config, isomorphic: !config.isomorphic })}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                config.isomorphic ? "bg-primary-600" : "bg-gray-200"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  config.isomorphic ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Taylor-specific parameters */}
-          {config.importance_type === "taylor" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Calibration Samples
-              </label>
-              <div className="flex rounded-md shadow-sm">
-                <input
-                  type="number"
-                  min="1"
-                  max="256"
-                  value={config.taylor_num_samples}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      taylor_num_samples: Math.max(1, parseInt(e.target.value) || 1),
-                    })
-                  }
-                  className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
-                />
-                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
-                  / {selectedDataset?.file_count ?? "—"} samples
-                </span>
+          {/* Isomorphic + Taylor Calibration Samples (side by side) */}
+          <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            {/* Isomorphic */}
+            <div className="flex items-start justify-between gap-4 py-1">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Isomorphic
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Apply the same pruning ratio uniformly to every layer (useful for symmetric architectures).
+                </p>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Number of images used for the backward pass to compute Taylor importance scores.
-                More samples → more representative gradients, but slower.
-                {!selectedDataset && (
-                  <span className="text-amber-600 font-medium">
-                    {" "}No dataset selected — a random tensor will be repeated for each sample.
-                  </span>
-                )}
-              </p>
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, isomorphic: !config.isomorphic })}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  config.isomorphic ? "bg-primary-600" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    config.isomorphic ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
             </div>
-          )}
+
+            {/* Taylor Calibration Samples */}
+            {config.importance_type === "taylor" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Calibration Samples
+                </label>
+                <div className="flex rounded-md shadow-sm">
+                  <input
+                    type="number"
+                    min="1"
+                    max="256"
+                    value={config.taylor_num_samples}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        taylor_num_samples: Math.max(1, parseInt(e.target.value) || 1),
+                      })
+                    }
+                    className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
+                  />
+                  <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                    / {selectedDataset?.file_count ?? "—"} samples
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Number of images used for the backward pass to compute Taylor importance scores.
+                  More samples → more representative gradients, but slower.
+                  {!selectedDataset && (
+                    <span className="text-amber-600 font-medium">
+                      {" "}No dataset selected — a random tensor will be repeated for each sample.
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* BNScale-specific parameters */}
           {config.importance_type === "bn_scale" && (
@@ -1295,9 +1337,13 @@ const NetworkOptimizationTab = ({ workspace }) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {optimizations.map((opt) => (
+                  {optimizations.map((opt) => {
+                    const optId = opt.id || opt._id;
+                    const isRunning = opt.status === "pending" || opt.status === "running";
+                    const prog = optProgress[optId];
+                    return (
+                    <React.Fragment key={opt.id}>
                     <tr
-                      key={opt.id}
                       onClick={() => setSelectedOptimization(opt)}
                       className={`cursor-pointer transition-colors ${
                         selectedOptimization?.id === opt.id
@@ -1347,7 +1393,38 @@ const NetworkOptimizationTab = ({ workspace }) => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    {isRunning && prog && (
+                      <tr
+                        style={{ borderTop: "none" }}
+                        className={`cursor-pointer ${selectedOptimization?.id === optId ? "bg-blue-50" : ""}`}
+                        onClick={() => setSelectedOptimization(opt)}
+                      >
+                        <td className="px-6 pb-3" />
+                        <td
+                          colSpan={!selectedOptimization ? 3 : 2}
+                          className="px-6 pt-1.5 pb-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-primary-600 h-1.5 rounded-full transition-all duration-500 ease-out"
+                                style={{ width: `${prog.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-gray-400 font-mono w-7 text-right shrink-0">
+                              {prog.progress}%
+                            </span>
+                          </div>
+                          {prog.message && (
+                            <p className="text-[10px] text-gray-400 mt-1 truncate">{prog.message}</p>
+                          )}
+                        </td>
+                        <td className="px-6 pb-3" />
+                      </tr>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1597,12 +1674,23 @@ const NetworkOptimizationTab = ({ workspace }) => {
                   {/* Running indicator */}
                   {(selectedOptimization.status === "pending" ||
                     selectedOptimization.status === "running") && (
-                    <div className="flex flex-col items-center py-8 text-gray-500">
-                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-4" />
-                      <p className="text-sm font-medium">
-                        Pruning in progress…
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
+                    <div className="py-6 space-y-4">
+                      <div className="flex items-center gap-3 text-gray-700">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600 flex-shrink-0" />
+                        <span className="text-sm font-medium">
+                          {optProgress[selectedOptimization.id || selectedOptimization._id]?.message || "Pruning in progress\u2026"}
+                        </span>
+                        <span className="ml-auto text-sm font-semibold text-primary-600 tabular-nums">
+                          {optProgress[selectedOptimization.id || selectedOptimization._id]?.progress ?? 0}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className="bg-primary-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${optProgress[selectedOptimization.id || selectedOptimization._id]?.progress ?? 0}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-400 text-center">
                         This page will update automatically.
                       </p>
                     </div>
