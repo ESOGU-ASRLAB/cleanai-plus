@@ -1200,7 +1200,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
                       </th>
                     )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      ID
+                      Created Model
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
@@ -1231,8 +1231,10 @@ const NetworkOptimizationTab = ({ workspace }) => {
                           )?.name || opt.model_id}
                         </td>
                       )}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                        {opt.id}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 max-w-[200px] truncate" title={opt.result?.output_model_name || "—"}>
+                        {opt.result?.output_model_name || (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(opt.created_at).toLocaleString()}
