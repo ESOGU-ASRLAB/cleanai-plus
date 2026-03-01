@@ -336,7 +336,8 @@ class ExecutionService:
             label_map = dataset_doc.schema_info["label_map"]
             print(f"Using explicit label map from dataset schema: {label_map}")
 
-        dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
+        shuffle_dataset = bool(config.get("shuffle_dataset", True))
+        dataset_iterator = self._get_samples_iterator(dataset_doc, limit, shuffle=shuffle_dataset)
 
         # Total samples estimate for progress tracking
         total_samples = limit if limit > 0 else (getattr(dataset_doc, "file_count", None) or 0)
@@ -650,74 +651,71 @@ class ExecutionService:
                  
         return transforms.Compose(transform_list)
 
-    def _get_samples_iterator(self, dataset_doc: Dataset, limit: int = 0) -> Iterator[Tuple[str, Image.Image, str]]:
+    def _get_samples_iterator(self, dataset_doc: Dataset, limit: int = 0, shuffle: bool = True) -> Iterator[Tuple[str, Image.Image, str]]:
         """
         Yields (id, image_pil, label_name) from either direct image files or pickle batches.
+        When shuffle=True, samples are randomly ordered before iterating.
         """
+        import random
         dataset_root = dataset_doc.path
-        count = 0
-        
-        # Strategy 1: Look for images on disk
         valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-        has_images = False
-        
+
+        # Strategy 1: Collect all image file paths, then optionally shuffle
+        file_samples = []  # list of (full_path, rel_path, label_name)
         for root, dirs, files in os.walk(dataset_root):
             for file in files:
                 if os.path.splitext(file)[1].lower() in valid_extensions:
-                    has_images = True
-                    if limit > 0 and count >= limit:
-                        return
-
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, dataset_root)
-                    label_name = rel_path.split("/")[0].split("\\")[0] # Infer from folder
-                    
-                    try:
-                        img = Image.open(full_path)
-                        img.load() # Force load
-                        yield rel_path, img, label_name
-                        count += 1
-                    except Exception as e:
-                        print(f"Skipping bad image {rel_path}: {e}")
-        
-        if has_images:
+                    label_name = rel_path.split("/")[0].split("\\")[0]  # Infer from folder
+                    file_samples.append((full_path, rel_path, label_name))
+
+        if file_samples:
+            if shuffle:
+                random.shuffle(file_samples)
+            if limit > 0:
+                file_samples = file_samples[:limit]
+            for full_path, rel_path, label_name in file_samples:
+                try:
+                    img = Image.open(full_path)
+                    img.load()  # Force load
+                    yield rel_path, img, label_name
+                except Exception as e:
+                    print(f"Skipping bad image {rel_path}: {e}")
             return
 
         # Strategy 2: If no images found, look for pickle/batch files
         print("No images found on disk, checking for pickle batches...")
-        
+
         # Load metadata for labels if available
         label_map = {}
         for root, dirs, files in os.walk(dataset_root):
             for file in files:
                 if 'meta' in file.lower():
                     try:
-                         with open(os.path.join(root, file), 'rb') as f:
+                        with open(os.path.join(root, file), 'rb') as f:
                             data = pickle.load(f, encoding='bytes')
-                            # Handle CIFAR-10 specific meta
                             if b'label_names' in data:
                                 label_names = [x.decode('utf-8') for x in data[b'label_names']]
                                 for idx, name in enumerate(label_names):
                                     label_map[idx] = name
                     except: pass
 
+        # Collect all pickle samples first (they are numpy arrays, already in memory)
+        all_pickle_samples = []  # list of (sample_id, img_data_ndarray, label_idx)
         for root, dirs, files in os.walk(dataset_root):
-             for file in files:
+            for file in files:
                 fname = file.lower()
                 if 'meta' in fname or fname.endswith('.html') or fname.endswith('.txt'):
                     continue
-                
-                # Check for known batch patterns or just try opening large files
                 path = os.path.join(root, file)
                 try:
                     with open(path, 'rb') as f:
                         batch = pickle.load(f, encoding='bytes')
-                    
                     if not isinstance(batch, dict):
                         continue
-                    
-                    # Try to extract data/labels
                     keys = list(batch.keys())
+
                     def find_key(candidates):
                         for k in keys:
                             if isinstance(k, bytes):
@@ -725,44 +723,36 @@ class ExecutionService:
                             elif isinstance(k, str):
                                 if k in candidates: return k
                         return None
-                    
+
                     data_key = find_key(['data', 'features'])
                     labels_key = find_key(['labels', 'fine_labels'])
-                    
                     if data_key and labels_key:
                         features = batch[data_key]
                         labels = batch[labels_key]
-                        
                         # Reshape Logic (Same as DatasetService)
                         if len(features.shape) == 2:
                             N = len(features)
                             D = features.shape[1]
-                            if D == 3072: # CIFAR
+                            if D == 3072:   # CIFAR
                                 features = features.reshape((N, 3, 32, 32)).transpose(0, 2, 3, 1)
-                            elif D == 784: # MNIST
+                            elif D == 784:  # MNIST
                                 features = features.reshape((N, 28, 28))
-                        
-                        N = len(features)
-                        # Process batch
-                        for i in range(N):
-                            if limit > 0 and count >= limit:
-                                return
-                            
-                            img_data = features[i]
-                            if img_data.dtype != np.uint8:
-                                img_data = img_data.astype(np.uint8)
-                            
-                            img = Image.fromarray(img_data)
-                            
-                            label_idx = labels[i]
-                            label_name = label_map.get(label_idx, str(label_idx))
-                            
-                            yield f"{file}_{i}", img, label_name
-                            count += 1
-                            
+                        for i in range(len(features)):
+                            all_pickle_samples.append((f"{file}_{i}", features[i], labels[i]))
                 except Exception:
-                    # Not a pickle or readable batch, skip
                     continue
+
+        if all_pickle_samples:
+            if shuffle:
+                random.shuffle(all_pickle_samples)
+            if limit > 0:
+                all_pickle_samples = all_pickle_samples[:limit]
+            for sample_id, img_data, label_idx in all_pickle_samples:
+                if img_data.dtype != np.uint8:
+                    img_data = img_data.astype(np.uint8)
+                img = Image.fromarray(img_data)
+                label_name = label_map.get(label_idx, str(label_idx))
+                yield sample_id, img, label_name
 
     def _load_model_from_disk(self, model_doc: dict, device: torch.device, num_classes: int = 10) -> nn.Module:
         """

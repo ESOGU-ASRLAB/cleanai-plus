@@ -1,3 +1,18 @@
+# ── Windows / Python-3.12 WMI workaround ────────────────────────────────────
+# On Windows, Python 3.12+ calls platform._wmi_query() which can raise a COM
+# exception in freshly-spawned multiprocessing worker processes (e.g. uvicorn
+# reload workers).  Patching win32_ver before any stdlib/third-party import
+# that triggers platform.system() keeps the server crash-free on reload.
+import platform as _platform
+_orig_win32_ver = _platform.win32_ver
+def _safe_win32_ver(release="", version="", csd="", ptype=""):
+    try:
+        return _orig_win32_ver(release, version, csd, ptype)
+    except Exception:
+        return (release, version, csd, ptype)
+_platform.win32_ver = _safe_win32_ver
+# ─────────────────────────────────────────────────────────────────────────────
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

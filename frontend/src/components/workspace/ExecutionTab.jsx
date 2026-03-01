@@ -47,6 +47,7 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
   const [config, setConfig] = useState({
     batch_size: 32,
     device: "cuda",
+    shuffle_dataset: true,
   });
 
   // Data for selections
@@ -445,6 +446,33 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                   </div>
                   <p className="mt-1 text-xs text-gray-500">
                     Hardware accelerator for the execution.
+                  </p>
+                </div>
+
+                {/* Shuffle Dataset */}
+                <div className="col-span-1 md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Shuffle Dataset
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConfig({ ...config, shuffle_dataset: !config.shuffle_dataset })
+                    }
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+                      config.shuffle_dataset ? "bg-primary-600" : "bg-gray-200"
+                    }`}
+                    role="switch"
+                    aria-checked={config.shuffle_dataset}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        config.shuffle_dataset ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Randomly shuffle dataset samples before inference. Recommended for unbiased evaluation.
                   </p>
                 </div>
 

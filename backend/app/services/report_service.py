@@ -293,17 +293,18 @@ class ReportService:
         cm_data   = execution.metrics.get("confusion_matrix")
         cm_labels = execution.metrics.get("confusion_matrix_labels", [])
         if cm_data and cm_labels:
-            n = len(cm_labels)
-            elements.append(Paragraph("4. Confusion Matrix", section_style))
-
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as _plt
-            import seaborn as _sns
             import numpy as _np
+            from sklearn.metrics import ConfusionMatrixDisplay as _CMD
 
-            _cm_array = _np.array(cm_data, dtype=float)
+            n = len(cm_labels)
+            elements.append(Paragraph("4. Confusion Matrix", section_style))
+
+            _cm_array = _np.array(cm_data, dtype=int)
             _do_plot  = False
+            _note_text = None
 
             if n > 20:
                 # Sub-matrix: top-3 best + bottom-3 worst classes
@@ -319,19 +320,17 @@ class ReportService:
                 if not _sub_indices:
                     elements.append(Paragraph(
                         f"The confusion matrix has {n} classes and is too large to render.",
-                        styles['Normal']
+                        styles["Normal"]
                     ))
                 else:
                     _ix       = _np.array(_sub_indices)
                     _cm_plot  = _cm_array[_np.ix_(_ix, _ix)]
                     _lbl_plot = [cm_labels[_i] for _i in _sub_indices]
-                    elements.append(Paragraph(
+                    _note_text = (
                         f"Full matrix has {n} classes. "
                         f"Showing {len(_sub_indices)}×{len(_sub_indices)} sub-matrix "
-                        f"for the best and worst performing classes.",
-                        styles['Normal']
-                    ))
-                    elements.append(Spacer(1, 6))
+                        f"for the best and worst performing classes."
+                    )
                     _do_plot = True
             else:
                 _cm_plot  = _cm_array
@@ -339,29 +338,19 @@ class ReportService:
                 _do_plot  = True
 
             if _do_plot:
-                _row_sums = _cm_plot.sum(axis=1, keepdims=True)
-                _cm_norm  = _np.where(_row_sums > 0, _cm_plot / _row_sums, 0.0)
+                if _note_text:
+                    elements.append(Paragraph(_note_text, styles["Normal"]))
+                    elements.append(Spacer(1, 6))
 
-                _sz  = max(4, len(_lbl_plot) * 0.75)
-                _fig, _ax = _plt.subplots(figsize=(_sz, _sz * 0.88))
-                _sns.heatmap(
-                    _cm_norm,
-                    annot=_cm_plot.astype(int),
-                    fmt="d",
-                    cmap="Blues",
-                    xticklabels=_lbl_plot,
-                    yticklabels=_lbl_plot,
-                    linewidths=0.4,
-                    linecolor="#e5e7eb",
-                    cbar=True,
-                    ax=_ax,
-                    annot_kws={"size": max(6, 10 - len(_lbl_plot) // 3)},
-                )
+                _sz = max(5, len(_lbl_plot) * 0.8)
+                _fig, _ax = _plt.subplots(figsize=(_sz, _sz))
+                _disp = _CMD(confusion_matrix=_cm_plot, display_labels=_lbl_plot)
+                _disp.plot(ax=_ax, colorbar=True, cmap="Blues", xticks_rotation=45)
                 _ax.set_xlabel("Predicted", fontsize=10)
-                _ax.set_ylabel("Actual",    fontsize=10)
+                _ax.set_ylabel("Actual", fontsize=10)
                 _tick_fs = max(6, 9 - len(_lbl_plot) // 4)
-                _ax.tick_params(axis='x', rotation=45, labelsize=_tick_fs)
-                _ax.tick_params(axis='y', rotation=0,  labelsize=_tick_fs)
+                _ax.tick_params(axis="x", labelsize=_tick_fs)
+                _ax.tick_params(axis="y", labelsize=_tick_fs)
                 _plt.tight_layout()
 
                 _buf = io.BytesIO()
@@ -370,15 +359,14 @@ class ReportService:
                 _buf.seek(0)
 
                 _img_w = 450.0
-                _img_h = _img_w * 0.88
+                _img_h = _img_w
                 elements.append(RLImage(_buf, width=_img_w, height=_img_h))
                 elements.append(Spacer(1, 6))
-                _cm_note_sty = ParagraphStyle('CmNote', parent=styles['Italic'],
+                _cm_note_sty = ParagraphStyle("CmNote", parent=styles["Italic"],
                                               fontSize=8, textColor=colors.gray)
                 elements.append(Paragraph(
-                    "Rows = actual · Columns = predicted · "
-                    "Colour intensity = row-normalised recall · "
-                    "Cell values = sample counts.",
+                    "Rows = actual · Columns = predicted · "
+                    "Cell values = sample counts.",
                     _cm_note_sty
                 ))
                 elements.append(Spacer(1, 10))
