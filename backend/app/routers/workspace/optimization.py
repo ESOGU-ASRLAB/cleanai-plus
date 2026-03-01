@@ -1,10 +1,12 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi.responses import FileResponse
 from app.services.workspace.optimization_service import OptimizationService
 from app.models.auth.user import User
 from app.models.workspace.optimization import OptimizationStatus
 from app.dependencies import get_current_user
 from app.schemas.optimization import OptimizationCreate, OptimizationResponse
+import os
 
 router = APIRouter()
 
@@ -106,3 +108,34 @@ async def get_optimization_progress(
 
     info = service.get_progress(optimization_id)
     return {"progress": info.get("progress", 0), "message": info.get("message", ""), "status": opt.status}
+
+
+@router.get("/{optimization_id}/report")
+async def download_optimization_report(
+    workspace_id: str,
+    optimization_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Download the PDF report for a completed optimization."""
+    from beanie import PydanticObjectId
+    from app.models.report import Report, ReportType
+
+    try:
+        oid = PydanticObjectId(optimization_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid optimization ID")
+
+    report = await Report.find_one(
+        Report.reference_id == oid,
+        Report.reference_type == ReportType.OPTIMIZATION,
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not os.path.exists(report.file_path):
+        raise HTTPException(status_code=404, detail="Report file not found on disk")
+
+    return FileResponse(
+        path=report.file_path,
+        filename=os.path.basename(report.file_path),
+        media_type="application/pdf",
+    )

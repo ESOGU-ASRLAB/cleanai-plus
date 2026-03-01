@@ -195,6 +195,38 @@ async def get_model(
     
     return model
 
+@router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    activity_service: ActivityService = Depends(get_activity_service),
+):
+    """Delete a model and its associated files."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    model = await model_service.get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    deleted = await model_service.delete_model(model_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete model")
+
+    await activity_service.log_activity(
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        action="model_deleted",
+        details={"model_name": model.name},
+    )
+
 @router.post("/{model_id}/convert", response_model=AIModelInDB)
 async def convert_model(
     workspace_id: str,

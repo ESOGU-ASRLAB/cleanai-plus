@@ -489,6 +489,7 @@ def send_optimization_result_email(
     result: dict = None,
     config: dict = None,
     error_message: str = None,
+    attachment_path: str = None,
 ):
     msg = MIMEMultipart("related")
 
@@ -636,6 +637,15 @@ def send_optimization_result_email(
         msg.attach(img)
     except Exception as e:
         print(f"Failed to attach logo: {e}")
+
+    if attachment_path and os.path.exists(attachment_path):
+        try:
+            with open(attachment_path, 'rb') as _f:
+                _pdf = MIMEApplication(_f.read(), _subtype='pdf')
+            _pdf.add_header('Content-Disposition', 'attachment', filename=os.path.basename(attachment_path))
+            msg.attach(_pdf)
+        except Exception as _ae:
+            print(f"Failed to attach PDF report: {_ae}")
 
     try:
         server = smtplib.SMTP(settings.smtp_server, settings.smtp_port)

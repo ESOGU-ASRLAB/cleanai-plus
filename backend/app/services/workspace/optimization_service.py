@@ -180,8 +180,7 @@ class OptimizationService:
             bn_scale_group_lasso = bool(config.get("bn_scale_group_lasso", False))
             ignored_layer_names: List[str] = config.get("ignored_layer_names", [])
             ignore_head = bool(config.get("ignore_head", True))
-            taylor_num_samples = max(1, int(config.get("taylor_num_samples", 1)))
-            taylor_batch_size = max(1, int(config.get("taylor_batch_size", 1)))
+            calibration_num_samples = max(1, int(config.get("calibration_num_samples", 16)))
 
             # ------------------------------------------------------------------ #
             # Proportional progress: count every unit of work up front so the
@@ -191,21 +190,24 @@ class OptimizationService:
             #   outer: A1(init) A2(examples) A5(load) A6(post-pruning) A7(save)
             #   inner: B1(baseline) B2(criterion) B5(pruner) B6…(steps) B7(stats)
             # Variable units:
-            #   _collect_units : real file-reads   (taylor_num_samples, taylor only)
+            #   _collect_units : real file-reads   (calibration_num_samples, taylor only)
             #   A4             : 1 extra advance after collection  (taylor only)
             #   _cal_units     : backward/forward passes  (N for taylor, 1 for activation)
+            #   _bench_units   : benchmark calibration sample collection (all criteria)
             # ------------------------------------------------------------------ #
-            _collect_units = taylor_num_samples if importance_type == "taylor" else 0
+            _collect_units = calibration_num_samples if importance_type == "taylor" else 0
             _cal_units = (
-                taylor_num_samples if importance_type == "taylor"
+                calibration_num_samples if importance_type == "taylor"
                 else (1 if importance_type == "activation" else 0)
             )
+            _bench_units = calibration_num_samples
             _total_units = (
                 10
                 + _collect_units
                 + (1 if importance_type == "taylor" else 0)   # A4
                 + _cal_units
                 + iterative_steps
+                + _bench_units                                # benchmark collection
             )
             _done = [0]
 
@@ -237,7 +239,7 @@ class OptimizationService:
             # --- A2 + collect: Calibration sample collection (Taylor only) ---
             calibration_inputs = None
             if importance_type == "taylor":
-                _advance(1, f"Collecting {taylor_num_samples} calibration sample(s)…")
+                _advance(1, f"Collecting {calibration_num_samples} calibration sample(s)…")
                 calibration_inputs = await loop.run_in_executor(
                     None,
                     self._get_calibration_samples,
@@ -245,7 +247,7 @@ class OptimizationService:
                     preprocessing_doc,
                     device,
                     config,
-                    taylor_num_samples,
+                    calibration_num_samples,
                     example_inputs,
                     optimization_id,
                     lambda msg: _advance(1, msg),
@@ -253,6 +255,20 @@ class OptimizationService:
                 _advance(1, "Loading model…")  # A4: collection done
             else:
                 _advance(1, "Loading model…")  # A2: examples done (no cal)
+
+            # --- Collect benchmark calibration samples (all criteria) ---
+            benchmark_inputs = await loop.run_in_executor(
+                None,
+                self._get_calibration_samples,
+                dataset_doc,
+                preprocessing_doc,
+                device,
+                config,
+                calibration_num_samples,
+                example_inputs,
+                optimization_id,
+                lambda msg: _advance(1, msg),
+            )
 
             # --- A5: Load model ---
             model = await loop.run_in_executor(
@@ -285,7 +301,7 @@ class OptimizationService:
                 optimization_id,
                 calibration_inputs,
                 _advance,
-                taylor_batch_size,
+                benchmark_inputs,
             )
 
             # Cancel may have arrived while _run_pruning was executing its last step
@@ -294,6 +310,8 @@ class OptimizationService:
 
             pruned_model = result["model"]
             stats = result["stats"]
+            _timing = result.get("timing", {})
+            _layer_changes = result.get("layer_changes", [])
 
             _advance(1, "Saving pruned model…")  # A6: pruning done
 
@@ -352,10 +370,32 @@ class OptimizationService:
                 "original_macs": stats.get("base_macs", 0),
                 "pruned_macs": stats.get("pruned_macs", 0),
                 "mac_reduction_pct": stats.get("mac_reduction_pct", 0),
+                "original_flops": stats.get("base_flops", 0),
+                "pruned_flops": stats.get("pruned_flops", 0),
+                "flop_reduction_pct": stats.get("flop_reduction_pct", 0),
                 "original_size_bytes": model_doc.get("file_size_bytes", 0),
                 "pruned_size_bytes": file_size,
             }
             await optimization.save()
+
+            # --- Generate PDF report ---
+            _report_file_path = None
+            try:
+                from app.services.report_service import ReportService
+                _rpt_svc = ReportService()
+                _rpt_doc = await _rpt_svc.generate_optimization_report(
+                    optimization=optimization,
+                    model_name=original_name,
+                    dataset_name=dataset_doc.name if dataset_doc else "—",
+                    preprocessing_name=preprocessing_doc.name if preprocessing_doc else None,
+                    timing=_timing,
+                    layer_changes=_layer_changes,
+                )
+                _report_file_path = _rpt_doc.file_path
+                optimization.result["report_id"] = str(_rpt_doc.id)
+                await optimization.save()
+            except Exception as _rpt_err:
+                print(f"Warning: Failed to generate optimization report: {_rpt_err}")
 
             print(
                 f"Optimization {optimization_id} completed. "
@@ -404,6 +444,7 @@ class OptimizationService:
                                 status="completed",
                                 result=optimization.result,
                                 config=optimization.config,
+                                attachment_path=_report_file_path,
                             )
                             await db.email_logs.insert_one({
                                 "user_id": user["_id"],
@@ -774,7 +815,7 @@ class OptimizationService:
         optimization_id: str = "",
         calibration_inputs: Optional[List[torch.Tensor]] = None,
         progress_callback=None,
-        taylor_batch_size: int = 1,
+        benchmark_inputs: Optional[List[torch.Tensor]] = None,
     ) -> Dict[str, Any]:
 
         def _report(n: int, msg: str):
@@ -926,6 +967,41 @@ class OptimizationService:
             _report(1, f"Building pruner for {iterative_steps} pruning step(s)…")  # B4: activation cal done
 
         # ------------------------------------------------------------------ #
+        # Measure inference time BEFORE pruning + collect layer shapes
+        # ------------------------------------------------------------------ #
+        import time as _time
+        _bench = benchmark_inputs if benchmark_inputs else [example_inputs]
+        _N_WARMUP = 3
+        _before_ms, _before_throughput = 0.0, 0.0
+        try:
+            model.eval()
+            with torch.no_grad():
+                for _bi in _bench[:_N_WARMUP]:
+                    model(_bi)
+            if hasattr(device, "type") and device.type == "cuda":
+                torch.cuda.synchronize()
+            _t0 = _time.perf_counter()
+            with torch.no_grad():
+                for _bi in _bench:
+                    model(_bi)
+            if hasattr(device, "type") and device.type == "cuda":
+                torch.cuda.synchronize()
+            _t1 = _time.perf_counter()
+            _before_ms = (_t1 - _t0) / len(_bench) * 1000
+            _before_throughput = len(_bench) / (_t1 - _t0)
+        except Exception as _te:
+            print(f"Warning: Could not measure pre-pruning inference time: {_te}")
+
+        _before_shapes = {}
+        for _n, _m in model.named_modules():
+            if isinstance(_m, nn.Conv2d):
+                _before_shapes[_n] = {"type": "Conv2d", "out": _m.out_channels, "in": _m.in_channels}
+            elif isinstance(_m, nn.Linear):
+                _before_shapes[_n] = {"type": "Linear", "out": _m.out_features, "in": _m.in_features}
+            elif isinstance(_m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                _before_shapes[_n] = {"type": type(_m).__name__, "out": _m.num_features, "in": _m.num_features}
+
+        # ------------------------------------------------------------------ #
         # Build pruner and run iterative pruning steps
         # ------------------------------------------------------------------ #
         pruner_kwargs = dict(
@@ -966,6 +1042,31 @@ class OptimizationService:
                 "Try a lower pruning ratio or a different importance criterion."
             )
 
+        # Collect layer shapes AFTER pruning + compute changes
+        _after_shapes = {}
+        for _lname, _lm in model.named_modules():
+            if isinstance(_lm, nn.Conv2d):
+                _after_shapes[_lname] = {"type": "Conv2d",
+                                          "out": _lm.out_channels, "in": _lm.in_channels}
+            elif isinstance(_lm, nn.Linear):
+                _after_shapes[_lname] = {"type": "Linear",
+                                          "out": _lm.out_features, "in": _lm.in_features}
+            elif isinstance(_lm, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                _after_shapes[_lname] = {"type": type(_lm).__name__,
+                                          "out": _lm.num_features, "in": _lm.num_features}
+        _layer_changes = []
+        for _lname, _b in _before_shapes.items():
+            _a = _after_shapes.get(_lname)
+            if _a and _b["out"] != _a["out"]:
+                _red = round((1 - _a["out"] / max(_b["out"], 1)) * 100, 1)
+                _layer_changes.append({
+                    "name": _lname, "type": _b["type"],
+                    "before_in": _b["in"], "before_out": _b["out"],
+                    "after_in":  _a["in"], "after_out":  _a["out"],
+                    "reduction_pct": _red,
+                })
+        _layer_changes.sort(key=lambda x: x["reduction_pct"], reverse=True)
+
         # Measure pruned stats — B7
         model.eval()
         try:
@@ -976,6 +1077,27 @@ class OptimizationService:
             print(f"Warning: Could not count pruned ops/params: {e}")
             pruned_macs = 0
             pruned_params = int(sum(p.numel() for p in model.parameters()))
+
+        # Measure inference time AFTER pruning
+        _after_ms, _after_throughput = 0.0, 0.0
+        try:
+            with torch.no_grad():
+                for _bi in _bench[:_N_WARMUP]:
+                    model(_bi)
+            if hasattr(device, "type") and device.type == "cuda":
+                torch.cuda.synchronize()
+            _t0 = _time.perf_counter()
+            with torch.no_grad():
+                for _bi in _bench:
+                    model(_bi)
+            if hasattr(device, "type") and device.type == "cuda":
+                torch.cuda.synchronize()
+            _t1 = _time.perf_counter()
+            _after_ms = (_t1 - _t0) / len(_bench) * 1000
+            _after_throughput = len(_bench) / (_t1 - _t0)
+        except Exception as _te:
+            print(f"Warning: post-pruning timing failed: {_te}")
+
         _report(1, "Saving model…")  # B7: stats done
 
         param_reduction_pct = (
@@ -989,6 +1111,12 @@ class OptimizationService:
             else 0.0
         )
 
+        # FLOPs = 2 × MACs (each MAC = 1 multiply + 1 add = 2 FLOPs)
+        base_flops   = int(base_macs) * 2
+        pruned_flops = int(pruned_macs) * 2
+        # Reduction ratio is identical to MACs since it's a linear scaling
+        flop_reduction_pct = mac_reduction_pct
+
         return {
             "model": model,
             "stats": {
@@ -998,5 +1126,15 @@ class OptimizationService:
                 "base_macs": int(base_macs),
                 "pruned_macs": int(pruned_macs),
                 "mac_reduction_pct": mac_reduction_pct,
+                "base_flops": base_flops,
+                "pruned_flops": pruned_flops,
+                "flop_reduction_pct": flop_reduction_pct,
             },
+            "timing": {
+                "before_ms":          _before_ms,
+                "after_ms":           _after_ms,
+                "before_throughput":  _before_throughput,
+                "after_throughput":   _after_throughput,
+            },
+            "layer_changes": _layer_changes,
         }

@@ -311,3 +311,501 @@ class ReportService:
             total_seconds = int(duration.total_seconds())
             return f"{total_seconds} seconds"
         return "Unknown"
+
+    # ================================================================== #
+    # OPTIMIZATION REPORT                                                 #
+    # ================================================================== #
+    async def generate_optimization_report(
+        self,
+        optimization,
+        model_name: str,
+        dataset_name: str,
+        preprocessing_name: str,
+        timing: dict,
+        layer_changes: list,
+    ) -> Report:
+        """Generate a comprehensive PDF report for a completed pruning optimization."""
+        from reportlab.graphics.shapes import Line    # noqa: F401 (kept for future)
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"optimization_report_{optimization.id}_{timestamp}.pdf"
+        file_path = os.path.join(self.upload_dir, filename)
+
+        PAGE_W, _ = letter
+        MARGIN = 40
+        CW = PAGE_W - 2 * MARGIN          # 532 pt usable width
+
+        doc = SimpleDocTemplate(
+            file_path, pagesize=letter,
+            title="CleanAI+ Optimization Report", author="CleanAI+",
+            rightMargin=MARGIN, leftMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN,
+        )
+
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # ---- colours -------------------------------------------------- #
+        C_PRIMARY    = colors.HexColor('#2563eb')
+        C_SECONDARY  = colors.HexColor('#1e40af')
+        C_SUCCESS    = colors.HexColor('#10b981')
+        C_WARN       = colors.HexColor('#f59e0b')
+        C_PURPLE     = colors.HexColor('#7c3aed')
+        C_GRAY_800   = colors.HexColor('#1f2937')
+        C_GRAY_500   = colors.HexColor('#6b7280')
+        C_GRAY_200   = colors.HexColor('#e5e7eb')
+        C_GRAY_50    = colors.HexColor('#f9fafb')
+        C_GRAY_100   = colors.HexColor('#f3f4f6')
+        C_BAR_BEFORE = colors.HexColor('#9ca3af')
+        C_BAR_AFTER  = colors.HexColor('#10b981')
+
+        # ---- paragraph styles ----------------------------------------- #
+        title_style = ParagraphStyle(
+            'OT', parent=styles['Title'],
+            fontSize=24, leading=30, textColor=C_SECONDARY,
+            alignment=1, spaceAfter=6,
+        )
+        subtitle_style = ParagraphStyle(
+            'OS', parent=styles['Normal'],
+            fontSize=10, textColor=C_GRAY_500, alignment=1, spaceAfter=20,
+        )
+        section_style = ParagraphStyle(
+            'OSec', parent=styles['Heading2'],
+            fontSize=13, textColor=C_PRIMARY,
+            spaceBefore=16, spaceAfter=8,
+        )
+        note_style = ParagraphStyle(
+            'ON', parent=styles['Italic'],
+            fontSize=8, textColor=C_GRAY_500,
+        )
+
+        # ---- helpers -------------------------------------------------- #
+        def fmt_num(n):
+            try: return f"{int(n):,}"
+            except Exception: return str(n)
+
+        def fmt_macs(n):
+            n = int(n)
+            if n >= 1_000_000_000: return f"{n/1e9:.3f} G"
+            if n >= 1_000_000:     return f"{n/1e6:.1f} M"
+            return f"{n/1e3:.1f} K"
+
+        def fmt_flops(n):
+            n = int(n)
+            if n >= 1_000_000_000: return f"{n/1e9:.3f} G"
+            if n >= 1_000_000:     return f"{n/1e6:.1f} M"
+            return f"{n/1e3:.1f} K"
+
+        def fmt_mb(b):
+            return f"{int(b)/(1024*1024):.2f} MB"
+
+        def pct_color(pct):
+            if pct >= 40:  return C_SUCCESS
+            if pct >= 20:  return C_WARN
+            return C_PURPLE
+
+        def kv_table(rows):
+            t = Table(rows, colWidths=[160, CW - 160])
+            t.setStyle(TableStyle([
+                ('GRID',          (0, 0), (-1, -1), 0.5,  C_GRAY_200),
+                ('FONTNAME',      (0, 0), (0,  -1), 'Helvetica-Bold'),
+                ('FONTNAME',      (1, 0), (1,  -1), 'Helvetica'),
+                ('FONTSIZE',      (0, 0), (-1, -1), 9),
+                ('TEXTCOLOR',     (0, 0), (0,  -1), C_SECONDARY),
+                ('TEXTCOLOR',     (1, 0), (1,  -1), C_GRAY_800),
+                ('BACKGROUND',    (0, 0), (0,  -1), C_GRAY_50),
+                ('BACKGROUND',    (1, 0), (1,  -1), colors.white),
+                ('TOPPADDING',    (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+            ]))
+            return t
+
+        def stat_cards(cards):
+            """3-per-row cards: (label, value, note)."""
+            while len(cards) % 3:
+                cards.append(("", "", ""))
+            rows = []
+            for i in range(0, len(cards), 3):
+                row = []
+                for label, value, note in cards[i:i+3]:
+                    cell = []
+                    if label:
+                        cell.append(Paragraph(f'<font color="#6b7280" size="8">{label}</font>', styles['Normal']))
+                        cell.append(Spacer(1, 4))
+                        cell.append(Paragraph(f'<font color="#1e40af" size="14"><b>{value}</b></font>', styles['Normal']))
+                        if note:
+                            cell.append(Spacer(1, 2))
+                            cell.append(Paragraph(f'<font color="#10b981" size="8">{note}</font>', styles['Normal']))
+                    row.append(cell)
+                rows.append(row)
+            cw3 = CW / 3
+            t = Table(rows, colWidths=[cw3, cw3, cw3])
+            t.setStyle(TableStyle([
+                ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+                ('BACKGROUND',    (0, 0), (-1, -1), colors.white),
+                ('TOPPADDING',    (0, 0), (-1, -1), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 14),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 12),
+                ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
+            ]))
+            return t
+
+        def cmp_bar(label_a, val_a, fmt_a, label_b, val_b, fmt_b, reduction_pct=None, title=""):
+            """Two horizontal bars, value labels after bars, optional reduction badge."""
+            w, h = CW - 4, (88 if title else 72)
+            d = Drawing(w, h)
+            TITLE_H = 16 if title else 0
+            LBL_W, VAL_R = 70, 88
+            bar_area = w - LBL_W - VAL_R
+            max_v = max(val_a, val_b, 1)
+
+            if title:
+                d.add(String(0, h - 12, title, fontName='Helvetica-Bold',
+                             fontSize=9, fillColor=C_GRAY_800))
+
+            # Bar A (before — gray)
+            bw_a = max(3, int(val_a / max_v * bar_area))
+            y_a = 44 + TITLE_H // 2
+            d.add(String(0, y_a + 3, "Before", fontName='Helvetica', fontSize=8, fillColor=C_GRAY_500))
+            d.add(Rect(LBL_W, y_a - 1, bw_a, 16, fillColor=C_BAR_BEFORE, strokeColor=None))
+            d.add(String(LBL_W + bw_a + 5, y_a + 3, fmt_a,
+                         fontName='Helvetica', fontSize=8, fillColor=C_GRAY_800))
+
+            # Bar B (after — green)
+            bw_b = max(3, int(val_b / max_v * bar_area))
+            y_b = 18 + TITLE_H // 2
+            d.add(String(0, y_b + 3, "After", fontName='Helvetica-Bold', fontSize=8, fillColor=C_GRAY_800))
+            d.add(Rect(LBL_W, y_b - 1, bw_b, 16, fillColor=C_BAR_AFTER, strokeColor=None))
+            d.add(String(LBL_W + bw_b + 5, y_b + 3, fmt_b,
+                         fontName='Helvetica-Bold', fontSize=8, fillColor=C_SUCCESS))
+
+            # Reduction badge (right-aligned)
+            if reduction_pct is not None and reduction_pct > 0:
+                bx = w - 62
+                by = TITLE_H // 2 + 22
+                d.add(Rect(bx, by, 60, 20, fillColor=pct_color(reduction_pct),
+                           strokeColor=None, rx=4, ry=4))
+                d.add(String(bx + 30, by + 5, f"\u25bc {reduction_pct}%",
+                             fontName='Helvetica-Bold', fontSize=8.5,
+                             fillColor=colors.white, textAnchor='middle'))
+            return d
+
+        def bar_section(drawing):
+            t = Table([[drawing]], colWidths=[CW])
+            t.setStyle(TableStyle([
+                ('TOPPADDING',    (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+                ('BACKGROUND',    (0, 0), (-1, -1), colors.white),
+                ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+            ]))
+            return t
+
+        # ---- pull data ------------------------------------------------ #
+        result   = optimization.result or {}
+        config   = optimization.config or {}
+
+        orig_params  = int(result.get("original_params", 0))
+        prnd_params  = int(result.get("pruned_params", 0))
+        param_pct    = float(result.get("param_reduction_pct", 0))
+        orig_macs    = int(result.get("original_macs", 0))
+        prnd_macs    = int(result.get("pruned_macs", 0))
+        mac_pct      = float(result.get("mac_reduction_pct", 0))
+        orig_flops   = int(result.get("original_flops", orig_macs * 2))
+        prnd_flops   = int(result.get("pruned_flops", prnd_macs * 2))
+        flop_pct     = float(result.get("flop_reduction_pct", mac_pct))
+        orig_bytes   = int(result.get("original_size_bytes", 0))
+        prnd_bytes   = int(result.get("pruned_size_bytes", 0))
+        size_pct     = round((1 - prnd_bytes / max(orig_bytes, 1)) * 100, 1) if orig_bytes else 0
+        output_name  = result.get("output_model_name", "—")
+
+        before_ms   = float(timing.get("before_ms", 0))
+        after_ms    = float(timing.get("after_ms", 0))
+        before_thr  = float(timing.get("before_throughput", 0))
+        after_thr   = float(timing.get("after_throughput", 0))
+        speedup     = round(before_ms / after_ms, 2) if after_ms > 0 else 0
+        thr_gain    = round((after_thr / max(before_thr, 1e-9) - 1) * 100, 1) if before_thr else 0
+        latency_red = round((1 - after_ms / before_ms) * 100, 1) if before_ms > 0 else 0
+
+        pruning_ratio   = config.get("pruning_ratio", "—")
+        importance_type = config.get("importance_type", "—")
+        iterative_steps = config.get("iterative_steps", 1)
+        device_str      = config.get("device", "cpu")
+        global_pruning  = config.get("global_pruning", False)
+        isomorphic      = config.get("isomorphic", False)
+        taylor_samples  = config.get("taylor_num_samples", "—")
+        ignore_head     = config.get("ignore_head", True)
+        ignored_layers  = config.get("ignored_layer_names", [])
+
+        if optimization.started_at and optimization.completed_at:
+            dur_s = int((optimization.completed_at - optimization.started_at).total_seconds())
+            duration_str = f"{dur_s // 60}m {dur_s % 60}s" if dur_s >= 60 else f"{dur_s}s"
+        else:
+            duration_str = "—"
+
+        # ================================================================ #
+        # HEADER
+        # ================================================================ #
+        logo_d = Drawing(CW, 52)
+        logo_bg = colors.HexColor('#6366f1')
+        logo_d.add(Rect(0, 10, 32, 32, rx=6, ry=6, fillColor=logo_bg, strokeColor=None))
+        bolt_pts = [17.33, 28.67, 17.33, 38.00, 5.33, 23.33,
+                    14.67, 23.33, 14.67, 14.00, 26.67, 28.67]
+        logo_d.add(Polygon(bolt_pts, fillColor=colors.white, strokeColor=None))
+        logo_d.add(String(42, 20, "CleanAI+", fontName="Helvetica-Bold",
+                          fontSize=22, fillColor=C_GRAY_800))
+        elements.append(logo_d)
+        elements.append(Paragraph("Network Optimization Report", title_style))
+        elements.append(Paragraph(
+            f"Generated on {datetime.utcnow().strftime('%d %B %Y, %H:%M')} UTC",
+            subtitle_style,
+        ))
+        # Top divider
+        div = Drawing(CW, 4)
+        div.add(Rect(0, 1, CW, 2.5, fillColor=C_PRIMARY, strokeColor=None))
+        elements.append(div)
+        elements.append(Spacer(1, 12))
+
+        # ================================================================ #
+        # 1. OVERVIEW
+        # ================================================================ #
+        elements.append(Paragraph("1. Optimization Overview", section_style))
+        elements.append(kv_table([
+            ["Optimization ID",  str(optimization.id)],
+            ["Status",           "\u2713  Completed"],
+            ["Original Model",   model_name],
+            ["Pruned Model",     output_name],
+            ["Dataset",          dataset_name],
+            ["Preprocessing",    preprocessing_name or "—"],
+            ["Started",          optimization.started_at.strftime('%Y-%m-%d %H:%M:%S')
+                                 if optimization.started_at else "—"],
+            ["Completed",        optimization.completed_at.strftime('%Y-%m-%d %H:%M:%S')
+                                 if optimization.completed_at else "—"],
+            ["Duration",         duration_str],
+            ["Device",           device_str.upper()],
+        ]))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 2. CONFIGURATION
+        # ================================================================ #
+        elements.append(Paragraph("2. Pruning Configuration", section_style))
+        cfg_rows = [
+            ["Pruning Ratio",        f"{float(pruning_ratio) * 100:.0f}%"],
+            ["Importance Criterion", str(importance_type).replace("_", " ").title()],
+            ["Iterative Steps",      str(iterative_steps)],
+            ["Global Pruning",       "Yes" if global_pruning else "No"],
+            ["Isomorphic",           "Yes" if isomorphic else "No"],
+            ["Ignore Classifier Head","Yes" if ignore_head else "No"],
+            ["Manually Ignored Layers", f"{len(ignored_layers)} layer(s)"],
+        ]
+        if importance_type == "taylor":
+            cfg_rows.append(["Taylor Calibration Samples", str(taylor_samples)])
+        elements.append(kv_table(cfg_rows))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 3. COMPRESSION STATISTICS
+        # ================================================================ #
+        elements.append(Paragraph("3. Compression Statistics", section_style))
+        elements.append(stat_cards([
+            ("Parameters — Before", fmt_num(orig_params), ""),
+            ("Parameters — After",  fmt_num(prnd_params),  f"\u25bc {param_pct}% reduction"),
+            ("Parameter Reduction", f"{param_pct}%",       ""),
+            ("MACs — Before",       fmt_macs(orig_macs),   ""),
+            ("MACs — After",        fmt_macs(prnd_macs),   f"\u25bc {mac_pct}% reduction"),
+            ("MACs Reduction",      f"{mac_pct}%",         ""),
+            ("FLOPs — Before",      fmt_flops(orig_flops), ""),
+            ("FLOPs — After",       fmt_flops(prnd_flops), f"\u25bc {flop_pct}% reduction"),
+            ("FLOPs Reduction",     f"{flop_pct}%",        ""),
+            ("File Size — Before",  fmt_mb(orig_bytes),    ""),
+            ("File Size — After",   fmt_mb(prnd_bytes),    f"\u25bc {size_pct}% reduction"),
+            ("Size Reduction",      f"{size_pct}%",        ""),
+        ]))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 4. BEFORE / AFTER COMPARISON (bar charts)
+        # ================================================================ #
+        elements.append(Paragraph("4. Before / After Comparison", section_style))
+        for bar in [
+            cmp_bar("Before", orig_params, fmt_num(orig_params),
+                    "After",  prnd_params,  fmt_num(prnd_params),
+                    reduction_pct=param_pct, title="Parameters"),
+            cmp_bar("Before", orig_macs, fmt_macs(orig_macs),
+                    "After",  prnd_macs,  fmt_macs(prnd_macs),
+                    reduction_pct=mac_pct, title="MACs (multiply-accumulate operations)"),
+            cmp_bar("Before", orig_flops, fmt_flops(orig_flops),
+                    "After",  prnd_flops,  fmt_flops(prnd_flops),
+                    reduction_pct=flop_pct, title="FLOPs (floating-point operations = 2 \u00d7 MACs)"),
+            cmp_bar("Before", orig_bytes, fmt_mb(orig_bytes),
+                    "After",  prnd_bytes,  fmt_mb(prnd_bytes),
+                    reduction_pct=size_pct, title="File Size on Disk"),
+        ]:
+            elements.append(bar_section(bar))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 5. RUNTIME PERFORMANCE
+        # ================================================================ #
+        elements.append(Paragraph("5. Runtime Performance", section_style))
+        if before_ms > 0 or after_ms > 0:
+            perf_cards = []
+            if before_ms > 0:
+                perf_cards.append(("Inference Latency — Before", f"{before_ms:.2f} ms / image", ""))
+            if after_ms > 0:
+                perf_cards.append(("Inference Latency — After", f"{after_ms:.2f} ms / image",
+                                   f"\u25bc {latency_red}% faster" if before_ms > 0 else ""))
+            if speedup > 0:
+                perf_cards.append(("Speedup", f"{speedup}\u00d7", ""))
+            if before_thr > 0:
+                perf_cards.append(("Throughput — Before", f"{before_thr:.1f} img/s", ""))
+            if after_thr > 0:
+                perf_cards.append(("Throughput — After", f"{after_thr:.1f} img/s",
+                                   f"\u25b2 {thr_gain}%" if thr_gain > 0 else ""))
+            if thr_gain > 0:
+                perf_cards.append(("Throughput Gain", f"+{thr_gain}%", ""))
+            elements.append(stat_cards(perf_cards))
+            if before_ms > 0 and after_ms > 0:
+                elements.append(Spacer(1, 6))
+                elements.append(bar_section(
+                    cmp_bar("Before", before_ms, f"{before_ms:.2f} ms",
+                            "After",  after_ms,  f"{after_ms:.2f} ms",
+                            reduction_pct=latency_red,
+                            title="Inference Latency per Image (lower is better)")
+                ))
+        else:
+            elements.append(Paragraph(
+                "Inference timing not available — timing measurement was skipped or failed.",
+                note_style,
+            ))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 6. LAYER-BY-LAYER ANALYSIS
+        # ================================================================ #
+        elements.append(Paragraph("6. Layer-by-Layer Pruning Analysis", section_style))
+        if layer_changes:
+            total_lc = len(layer_changes)
+            shown    = min(total_lc, 40)
+            elements.append(Paragraph(
+                f"{total_lc} layer(s) were structurally modified. "
+                f"Sorted by reduction \u2014 top {shown} shown.",
+                note_style,
+            ))
+            elements.append(Spacer(1, 6))
+            COL_N, COL_T, COL_B, COL_A, COL_P = 175, 65, 90, 90, 72
+            layer_data = [["Layer", "Type", "Before", "After", "Reduction"]]
+            for lc in layer_changes[:shown]:
+                name = lc["name"]
+                if len(name) > 28: name = "\u2026" + name[-26:]
+                ltype = (lc["type"].replace("BatchNorm2d", "BN2d")
+                                   .replace("BatchNorm1d", "BN1d"))
+                layer_data.append([
+                    name, ltype,
+                    f"{lc['before_in']}\u2192{lc['before_out']}",
+                    f"{lc['after_in']}\u2192{lc['after_out']}",
+                    f"{lc['reduction_pct']}%",
+                ])
+            lt_style = [
+                ('BACKGROUND',    (0, 0), (-1, 0),  C_SECONDARY),
+                ('TEXTCOLOR',     (0, 0), (-1, 0),  colors.white),
+                ('FONTNAME',      (0, 0), (-1, 0),  'Helvetica-Bold'),
+                ('FONTSIZE',      (0, 0), (-1, 0),  9),
+                ('FONTNAME',      (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE',      (0, 1), (-1, -1), 8),
+                ('TEXTCOLOR',     (0, 1), (-1, -1), C_GRAY_800),
+                ('GRID',          (0, 0), (-1, -1), 0.4, C_GRAY_200),
+                ('TOPPADDING',    (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+                ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, C_GRAY_50]),
+                ('FONTNAME',      (-1, 1), (-1, -1), 'Helvetica-Bold'),
+            ]
+            for i, lc in enumerate(layer_changes[:shown], start=1):
+                bg = (colors.HexColor('#d1fae5') if lc['reduction_pct'] >= 40
+                      else colors.HexColor('#fef3c7') if lc['reduction_pct'] >= 20
+                      else colors.HexColor('#ede9fe'))
+                lt_style.append(('BACKGROUND', (-1, i), (-1, i), bg))
+            lt_style.append(('TEXTCOLOR', (-1, 1), (-1, -1), C_SUCCESS))
+            layer_tbl = Table(layer_data, colWidths=[COL_N, COL_T, COL_B, COL_A, COL_P])
+            layer_tbl.setStyle(TableStyle(lt_style))
+            elements.append(layer_tbl)
+        else:
+            elements.append(Paragraph(
+                "No layer structural changes detected. This can happen if the pruning "
+                "ratio was very small or importance scores were uniform across all channels.",
+                note_style,
+            ))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 7. SUMMARY TABLE
+        # ================================================================ #
+        elements.append(Paragraph("7. Summary", section_style))
+        summary_rows = [["Metric", "Before", "After", "Change"]]
+        for row in [
+            ("Parameters",  fmt_num(orig_params),  fmt_num(prnd_params),  f"\u25bc {param_pct}%"),
+            ("MACs",  fmt_macs(orig_macs),   fmt_macs(prnd_macs),   f"\u25bc {mac_pct}%"),
+            ("FLOPs", fmt_flops(orig_flops), fmt_flops(prnd_flops), f"\u25bc {flop_pct}%"),
+            ("File Size",   fmt_mb(orig_bytes),     fmt_mb(prnd_bytes),    f"\u25bc {size_pct}%"),
+        ]:
+            summary_rows.append(list(row))
+        if before_ms > 0 and after_ms > 0:
+            summary_rows.append(["Inference Latency",
+                                  f"{before_ms:.2f} ms", f"{after_ms:.2f} ms",
+                                  f"\u25bc {latency_red}%"])
+        if before_thr > 0 and after_thr > 0:
+            summary_rows.append(["Throughput",
+                                  f"{before_thr:.1f} img/s", f"{after_thr:.1f} img/s",
+                                  f"\u25b2 {thr_gain}%"])
+        cw4 = CW / 4
+        sum_tbl = Table(summary_rows, colWidths=[cw4 * 1.2, cw4 * 0.9, cw4 * 0.9, cw4 * 1.0])
+        sum_tbl.setStyle(TableStyle([
+            ('BACKGROUND',    (0, 0), (-1,  0), C_PRIMARY),
+            ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+            ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1,  0), 9.5),
+            ('FONTNAME',      (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE',      (0, 1), (-1, -1), 9),
+            ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+            ('TOPPADDING',    (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+            ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, C_GRAY_50]),
+            ('TEXTCOLOR',     (-1, 1), (-1, -1), C_SUCCESS),
+            ('FONTNAME',      (-1, 1), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(sum_tbl)
+
+        # Footer
+        elements.append(Spacer(1, 24))
+        foot_div = Drawing(CW, 4)
+        foot_div.add(Rect(0, 1, CW, 1, fillColor=C_GRAY_200, strokeColor=None))
+        elements.append(foot_div)
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(
+            f"Generated automatically by CleanAI+ \u00b7 "
+            f"Optimization ID: {optimization.id} \u00b7 "
+            f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+            note_style,
+        ))
+
+        doc.build(elements)
+
+        report = Report(
+            workspace_id=optimization.workspace_id,
+            reference_id=optimization.id,
+            reference_type=ReportType.OPTIMIZATION,
+            name=f"Optimization Report: {model_name} \u2192 {output_name}",
+            file_path=file_path,
+            metadata={
+                "model_name":         model_name,
+                "output_model_name":  output_name,
+                "param_reduction_pct": param_pct,
+                "mac_reduction_pct":  mac_pct,
+            },
+        )
+        await report.insert()
+        return report

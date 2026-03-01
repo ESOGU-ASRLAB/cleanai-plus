@@ -22,6 +22,7 @@ import {
   FiChevronUp,
   FiChevronRight,
   FiStopCircle,
+  FiFileText,
 } from "react-icons/fi";
 
 const OPTIMIZATION_STEPS = [
@@ -122,7 +123,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
     pruning_ratio: 0.5,
     importance_type: "magnitude_l1",
     iterative_steps: 1,
-    device: "cpu",
+    device: "cuda",
     output_name_postfix: "_magnitude_l1_pruned",
     global_pruning: false,
     max_pruning_ratio: 1.0,
@@ -130,8 +131,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
     isomorphic: false,
     bn_scale_reg: 0.00001,
     bn_scale_group_lasso: false,
-    taylor_num_samples: 16,
-    taylor_batch_size: 4,
+    calibration_num_samples: 16,
     ignore_head: true,
     ignored_layer_names: [],
   });
@@ -284,7 +284,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
       pruning_ratio: 0.5,
       importance_type: "magnitude_l1",
       iterative_steps: 1,
-      device: "cpu",
+      device: "cuda",
       output_name_postfix: "_magnitude_l1_pruned",
       global_pruning: false,
       max_pruning_ratio: 1.0,
@@ -292,8 +292,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
       isomorphic: false,
       bn_scale_reg: 0.00001,
       bn_scale_group_lasso: false,
-      taylor_num_samples: 16,
-      taylor_batch_size: 4,
+      calibration_num_samples: 16,
       ignore_head: true,
       ignored_layer_names: [],
     });
@@ -348,6 +347,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
 
   const canProceed = () => {
     if (activeStep === 1) return !!selectedModel;
+    if (activeStep === 2) return !!selectedDataset;
     return true;
   };
 
@@ -372,6 +372,35 @@ const NetworkOptimizationTab = ({ workspace }) => {
       }
     } catch (err) {
       console.error("Cancel error:", err);
+    }
+  };
+
+  const handleDownloadOptReport = async (optimizationId, e) => {
+    if (e) e.stopPropagation();
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${workspaceId}/optimizations/${optimizationId}/report`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `optimization_report_${optimizationId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+      } else {
+        showAlert(
+          "Report not available yet. Please try again later.",
+          "Report Error",
+          "error",
+        );
+      }
+    } catch (err) {
+      console.error("Failed to download report:", err);
     }
   };
 
@@ -447,31 +476,18 @@ const NetworkOptimizationTab = ({ workspace }) => {
   const renderStep2 = () => (
     <div>
       <p className="text-sm text-gray-600 mb-4">
-        Optionally select a dataset for generating example inputs. If none is
-        selected, a random <code className="bg-gray-100 px-1 rounded">1×3×224×224</code>{" "}
-        tensor will be used.
+        Select a dataset to use for calibration and performance benchmarking.
+        Dataset samples will be used to measure real inference latency and throughput,
+        and for importance score computation when applicable.
       </p>
-      <div className="space-y-3">
-        {/* None option */}
-        <div
-          onClick={() => setSelectedDataset(null)}
-          className={`p-4 border rounded-lg cursor-pointer transition-all flex items-center gap-4 ${
-            selectedDataset === null
-              ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
-              : "border-gray-200 hover:border-primary-200 hover:bg-gray-50"
-          }`}
-        >
-          <div className="p-2 bg-gray-100 rounded text-gray-600">
-            <FiActivity />
-          </div>
-          <div>
-            <h4 className="font-medium text-gray-900">None (Random Input)</h4>
-            <p className="text-sm text-gray-500">
-              Generate random tensor — best for standard vision models (224×224)
-            </p>
-          </div>
+      {datasets.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-300 mb-3">
+          <FiDatabase className="mb-3 h-10 w-10" />
+          <p className="text-sm font-medium">No datasets available</p>
+          <p className="text-xs mt-1">Upload a dataset first to continue.</p>
         </div>
-
+      )}
+      <div className="space-y-3">
         {datasets.map((dataset) => (
           <div
             key={dataset._id}
@@ -686,7 +702,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
               className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
             >
               <option value="cpu">CPU</option>
-              <option value="cuda">CUDA (GPU)</option>
+              <option value="cuda">CUDA (GPU) ★</option>
               <option value="mps">MPS (Mac)</option>
             </select>
           </div>
@@ -764,7 +780,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
             </button>
           </div>
 
-          {/* Isomorphic + Taylor Calibration Samples (side by side) */}
+          {/* Isomorphic + Calibration Samples (side by side) */}
           <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
             {/* Isomorphic */}
             <div className="flex items-start justify-between gap-4 py-1">
@@ -791,41 +807,33 @@ const NetworkOptimizationTab = ({ workspace }) => {
               </button>
             </div>
 
-            {/* Taylor Calibration Samples */}
-            {config.importance_type === "taylor" && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Calibration Samples
-                </label>
-                <div className="flex rounded-md shadow-sm">
-                  <input
-                    type="number"
-                    min="1"
-                    max="256"
-                    value={config.taylor_num_samples}
-                    onChange={(e) =>
-                      setConfig({
-                        ...config,
-                        taylor_num_samples: Math.max(1, parseInt(e.target.value) || 1),
-                      })
-                    }
-                    className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
-                  />
-                  <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
-                    / {selectedDataset?.file_count ?? "—"} samples
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Number of images used for the backward pass to compute Taylor importance scores.
-                  More samples → more representative gradients, but slower.
-                  {!selectedDataset && (
-                    <span className="text-amber-600 font-medium">
-                      {" "}No dataset selected — a random tensor will be repeated for each sample.
-                    </span>
-                  )}
-                </p>
+            {/* Calibration Samples (benchmark + Taylor importance) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Calibration Samples
+              </label>
+              <div className="flex rounded-md shadow-sm">
+                <input
+                  type="number"
+                  min="1"
+                  max="256"
+                  value={config.calibration_num_samples}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      calibration_num_samples: Math.max(1, parseInt(e.target.value) || 1),
+                    })
+                  }
+                  className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
+                />
+                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                  / {selectedDataset?.file_count ?? "—"} samples
+                </span>
               </div>
-            )}
+              <p className="mt-1 text-xs text-gray-500">
+                Real dataset images used for inference benchmarking (latency &amp; throughput) and, when Taylor is selected, for gradient-based importance scoring.
+              </p>
+            </div>
           </div>
 
           {/* BNScale-specific parameters */}
@@ -1148,7 +1156,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
               {config.importance_type === "taylor" && (
                 <li>
                   <span className="text-gray-500">Calibration Samples: </span>
-                  {config.taylor_num_samples}
+                  {config.calibration_num_samples}
                 </li>
               )}
             </ul>
@@ -1331,6 +1339,11 @@ const NetworkOptimizationTab = ({ workspace }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Date
                     </th>
+                    {!selectedOptimization && (
+                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Report
+                      </th>
+                    )}
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -1369,6 +1382,19 @@ const NetworkOptimizationTab = ({ workspace }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(opt.created_at).toLocaleString()}
                       </td>
+                      {!selectedOptimization && (
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                          {opt.status === "completed" && (
+                            <button
+                              onClick={(e) => handleDownloadOptReport(opt.id, e)}
+                              title="Download PDF Report"
+                              className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                            >
+                              <FiFileText size={18} />
+                            </button>
+                          )}
+                        </td>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex items-center justify-end gap-3">
                           {(opt.status === "running" || opt.status === "pending") && (
@@ -1457,6 +1483,17 @@ const NetworkOptimizationTab = ({ workspace }) => {
                         className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
                       >
                         <FiStopCircle size={18} />
+                      </button>
+                    )}
+                    {selectedOptimization.status === "completed" && (
+                      <button
+                        onClick={(e) =>
+                          handleDownloadOptReport(selectedOptimization.id, e)
+                        }
+                        title="Download PDF Report"
+                        className="text-gray-400 hover:text-primary-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        <FiFileText size={18} />
                       </button>
                     )}
                     <button
@@ -1642,6 +1679,36 @@ const NetworkOptimizationTab = ({ workspace }) => {
                             </p>
                             <p className="text-base font-bold text-green-600">
                               {selectedOptimization.result.mac_reduction_pct}%
+                            </p>
+                          </div>
+                          {/* FLOPs */}
+                          <div className="bg-white p-3 rounded-lg border border-gray-200">
+                            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
+                              FLOPs (pruned)
+                            </p>
+                            <p className="text-base font-bold text-gray-900">
+                              {(
+                                (selectedOptimization.result.pruned_flops || 0) /
+                                1e9
+                              ).toFixed(3)}{" "}
+                              G
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              was{" "}
+                              {(
+                                (selectedOptimization.result.original_flops ||
+                                  0) / 1e9
+                              ).toFixed(3)}{" "}
+                              G
+                            </p>
+                          </div>
+                          {/* FLOPs reduction */}
+                          <div className="bg-white p-3 rounded-lg border border-gray-200">
+                            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
+                              FLOPs Reduction
+                            </p>
+                            <p className="text-base font-bold text-green-600">
+                              {selectedOptimization.result.flop_reduction_pct}%
                             </p>
                           </div>
                           {/* File size */}

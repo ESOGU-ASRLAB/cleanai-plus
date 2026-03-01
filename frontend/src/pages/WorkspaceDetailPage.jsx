@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -33,6 +34,7 @@ import {
   FiCloud,
   FiPlus,
   FiZap,
+  FiTrash2,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -85,6 +87,8 @@ const WorkspaceDetailPage = () => {
   const [models, setModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState(null);
+  const [deleteModelId, setDeleteModelId] = useState(null);
+  const [deletingModel, setDeletingModel] = useState(false);
   const [modelDefinitions, setModelDefinitions] = useState({});
   const [loadingDefinitions, setLoadingDefinitions] = useState({});
 
@@ -151,6 +155,29 @@ const WorkspaceDetailPage = () => {
       } finally {
         setLoadingDefinitions((prev) => ({ ...prev, [model._id]: false }));
       }
+    }
+  };
+
+  const handleDeleteModel = async () => {
+    if (!deleteModelId) return;
+    setDeletingModel(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}/models/${deleteModelId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!response.ok) throw new Error("Failed to delete model");
+      if (selectedModel?._id === deleteModelId) setSelectedModel(null);
+      setModels((prev) => prev.filter((m) => m._id !== deleteModelId));
+      success("Model deleted successfully");
+    } catch (err) {
+      errorToast(err.message || "Failed to delete model");
+    } finally {
+      setDeletingModel(false);
+      setDeleteModelId(null);
     }
   };
 
@@ -921,23 +948,34 @@ const WorkspaceDetailPage = () => {
                             : "border-gray-200 hover:shadow-md hover:border-primary-300"
                         }`}
                       >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4
-                              className="font-medium text-gray-900 truncate"
-                              title={model.name}
-                            >
-                              {model.name}
-                            </h4>
-                            {model.is_optimized && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                                Optimized
-                              </span>
-                            )}
-                          </div>
-                          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                        <div className="flex items-start justify-between mb-1">
+                          <h4
+                            className="font-medium text-gray-900 truncate"
+                            title={model.name}
+                          >
+                            {model.name}
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteModelId(model._id);
+                            }}
+                            title="Delete model"
+                            className="ml-2 flex-shrink-0 text-gray-300 hover:text-red-500 focus:outline-none transition-colors"
+                          >
+                            <FiTrash2 size={15} />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
                             {model.format}
                           </span>
+                          {model.is_optimized && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                              Optimized
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500 mb-4 line-clamp-2 h-10">
                           {model.description || "No description provided."}
@@ -1062,6 +1100,37 @@ const WorkspaceDetailPage = () => {
           </div>
         )}
       </div>
+
+      {/* Delete Model Confirmation Modal */}
+      {deleteModelId && ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Model</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              This model and its files will be permanently deleted. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteModelId(null)}
+                disabled={deletingModel}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteModel}
+                disabled={deletingModel}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center gap-2"
+              >
+                {deletingModel && (
+                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
+                )}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
     </MainLayout>
   );
 };

@@ -8,7 +8,7 @@ class ReportType(str, Enum):
     EXECUTION = "execution"
     DATASET = "dataset"
     MODEL = "model"
-    # Future types can be added here
+    OPTIMIZATION = "optimization"
 
 class Report(Document):
     workspace_id: PydanticObjectId

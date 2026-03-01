@@ -46,7 +46,7 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
   const [selectedPreprocessing, setSelectedPreprocessing] = useState(null);
   const [config, setConfig] = useState({
     batch_size: 32,
-    device: "cpu",
+    device: "cuda",
   });
 
   // Data for selections
@@ -439,7 +439,7 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                       className="block w-full rounded-md border-gray-300 pl-3 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2"
                     >
                       <option value="cpu">CPU</option>
-                      <option value="cuda">CUDA (GPU)</option>
+                      <option value="cuda">CUDA (GPU) ★</option>
                       <option value="mps">MPS (Mac)</option>
                     </select>
                   </div>

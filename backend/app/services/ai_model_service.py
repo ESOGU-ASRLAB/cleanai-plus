@@ -91,6 +91,42 @@ class AIModelService:
             return AIModelInDB(**doc)
         return None
 
+    async def delete_model(self, model_id: str) -> bool:
+        """Delete a model: removes files from disk and document from DB."""
+        if not ObjectId.is_valid(model_id):
+            return False
+        doc = await self.models_collection.find_one({"_id": ObjectId(model_id)})
+        if not doc:
+            return False
+
+        # Remove model file
+        file_path = doc.get("file_path")
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+
+        # Remove definition file
+        def_path = doc.get("definition_file_path")
+        if def_path and os.path.exists(def_path):
+            try:
+                os.remove(def_path)
+            except OSError:
+                pass
+
+        # Remove the model directory if empty
+        if file_path:
+            model_dir = os.path.dirname(file_path)
+            if os.path.isdir(model_dir) and not os.listdir(model_dir):
+                try:
+                    shutil.rmtree(model_dir)
+                except OSError:
+                    pass
+
+        await self.models_collection.delete_one({"_id": ObjectId(model_id)})
+        return True
+
     async def get_model_definition(self, model_id: str) -> Optional[str]:
         if not ObjectId.is_valid(model_id):
             return None
