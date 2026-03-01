@@ -20,6 +20,15 @@ from app.schemas.execution import ExecutionCreate
 from app.database.mongodb import get_database
 
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+from typing import Dict
+
+# In-memory progress tracking: execution_id -> progress percentage (0-100)
+# Updated by the sync inference thread; read by the /progress endpoint.
+_execution_progress: Dict[str, int] = {}
+
+# Set of execution_ids that have been requested to cancel.
+# Checked inside the sync inference thread each batch.
+_execution_cancelled: set = set()
 
 # Energy & Compute Consumption Tracking
 try:
@@ -91,6 +100,8 @@ class ExecutionService:
     async def run_execution(self, execution_id: str):
         """
         Runs the actual inference pipeline using PyTorch.
+        The CPU-heavy inference work is offloaded to a thread pool via
+        run_in_executor so the asyncio event loop is never blocked.
         """
         execution = await self.get_execution(execution_id)
         if not execution:
@@ -103,11 +114,11 @@ class ExecutionService:
             execution.started_at = datetime.utcnow()
             await execution.save()
 
-            # 2. Fetch Resources
+            # 2. Fetch Resources (async DB ops)
             db = await get_database()
             model_doc = await db.ai_models.find_one({"_id": execution.model_id})
             dataset_doc = await Dataset.get(execution.dataset_id)
-            
+
             preprocessing_doc = None
             if execution.preprocessing_id:
                 preprocessing_doc = await Preprocessing.get(execution.preprocessing_id)
@@ -117,268 +128,29 @@ class ExecutionService:
             if not dataset_doc:
                 raise Exception("Dataset not found")
 
-            # 3. Load Model
-            device = torch.device(execution.config.get("device", "cpu"))
-            if execution.config.get("device") == "cuda" and not torch.cuda.is_available():
-                print("CUDA not available, falling back to CPU")
-                device = torch.device("cpu")
-            
-            print(f"Loading model {model_doc['name']} on {device}")
-            
-            # Use sorted classes to ensure deterministic index mapping (matching standard ImageFolder behavior)
-            # This fixes issues where dataset.classes might be unsorted due to upload order
-            model_classes = sorted(dataset_doc.classes) if dataset_doc.classes else []
-            num_classes = len(model_classes) if model_classes else 10
-            
-            model = self._load_model_from_disk(model_doc, device, num_classes)
-            model.eval()
-
-            # Enable cuDNN auto-tuner for better GPU throughput on fixed input sizes
-            if device.type == 'cuda':
-                torch.backends.cudnn.benchmark = True
-
-            # 4. Prepare Data Loader & Inference Loop
-            dataset_root = dataset_doc.path
-
-            # Use Preprocessing if defined
-            preprocess = self._build_transforms(preprocessing_doc)
-            
-            correct = 0
-            total = 0
-            loss_sum = 0.0
-            criterion = nn.CrossEntropyLoss()
-            
-            # Map class names to indices based on SORTED classes
-            class_to_idx = {cls_name: i for i, cls_name in enumerate(model_classes)}
-            
-            # Limit samples if requested in config for quick test
-            limit = execution.config.get("limit_samples", 0)
-            
-            print(f"Starting inference...")
-
-            # Debug: Print Class Mapping
-            print(f"Dataset Classes in DB: {dataset_doc.classes}")
-            print(f"Computed Class to Index Map: {class_to_idx}")
-
-            # Extract explicit label mapping from schema_info if available (folder_name -> model_index)
-            label_map = {}
-            if dataset_doc.schema_info and "label_map" in dataset_doc.schema_info:
-                label_map = dataset_doc.schema_info["label_map"]
-                print(f"Using explicit label map from dataset schema: {label_map}")
-            
-            dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
-            processed_count = 0
-            error_count = 0
-            
-            # Performance Tracking
-            start_time = 0
-            tracker = None
-            flops_per_sample = 0
-            
-            # Init CodeCarbon Tracker (CPU + GPU support)
-            if EmissionsTracker:
-                try:
-                    # Using OfflineEmissionsTracker if possible to avoid network calls, 
-                    # but explicit country_iso_code might be needed. 
-                    # Falling back to standard tracker relative to system.
-                    # log_level='error' to reduce noise
-                    tracker = EmissionsTracker(
-                        project_name=f"exec_{execution_id}", 
-                        measure_power_secs=1,
-                        log_level='error',
-                        save_to_file=False
-                    )
-                    tracker.start()
-                except Exception as e:
-                    print(f"CodeCarbon Warning: {e}")
-                    tracker = None
-            else:
-                 print("CodeCarbon not installed. Energy metrics will be unavailable.")
-
-            start_time = time.perf_counter()
-
-            # Metrics collection
-            all_targets = []
-            all_preds = []
-            all_probs = [] # List of probabilities for Top-K
-
-            # Batched inference for better GPU utilization
-            batch_size = int(execution.config.get("batch_size", 32))
-            batch_tensors = []
-            batch_label_names = []
-            batch_sample_ids = []
-
-            def flush_batch():
-                nonlocal correct, total, loss_sum, flops_per_sample, processed_count
-                if not batch_tensors:
-                    return
-
-                input_batch = torch.stack(batch_tensors).to(device)
-
-                # Calculate FLOPs once on the first batch
-                if processed_count == 0 and thop and model:
-                    try:
-                        macs, _ = thop.profile(model, inputs=(input_batch[:1],), verbose=False)
-                        flops_per_sample = macs * 2
-                    except Exception as thop_e:
-                        print(f"THOP Warning: {thop_e}")
-
-                outputs = model(input_batch)
-                probs_batch = torch.nn.functional.softmax(outputs, dim=1)
-                _, predicted_batch = torch.max(outputs, 1)
-
-                for i, (lname, sid) in enumerate(zip(batch_label_names, batch_sample_ids)):
-                    if processed_count < 3:
-                        print(f"Sample: {sid}, Extracted Label: '{lname}'")
-
-                    target_idx = -1
-                    # Priority 1: Check explicit label map (folder_name -> integer index)
-                    if lname in label_map:
-                        try:
-                            target_idx = int(label_map[lname])
-                        except ValueError:
-                            print(f"Invalid index in label_map for {lname}: {label_map[lname]}")
-                    # Priority 2: Check standard class_to_idx mapping
-                    elif lname and lname in class_to_idx:
-                        target_idx = class_to_idx[lname]
-
-                    if target_idx >= 0:
-                        num_outputs = outputs.shape[1]
-                        if target_idx < num_outputs:
-                            target = torch.tensor([target_idx]).to(device)
-                            loss = criterion(outputs[i:i+1], target)
-                            loss_sum += loss.item()
-                            if predicted_batch[i].item() == target_idx:
-                                correct += 1
-                            all_targets.append(target_idx)
-                            all_preds.append(predicted_batch[i].item())
-                            all_probs.append(probs_batch[i].cpu().numpy())
-                        else:
-                            if processed_count < 5:
-                                print(f"Warning: Label '{lname}' (mapped to idx {target_idx}) is out of bounds for model output size {num_outputs}. Skipping loss calculation.")
-
-                    total += 1
-                    processed_count += 1
-
-                batch_tensors.clear()
-                batch_label_names.clear()
-                batch_sample_ids.clear()
-
-            with torch.no_grad():
-                for sample_id, image, label_name in dataset_iterator:
-                    try:
-                        if image.mode != 'RGB':
-                            image = image.convert('RGB')
-
-                        tensor = preprocess(image)
-                        batch_tensors.append(tensor)
-                        batch_label_names.append(label_name)
-                        batch_sample_ids.append(sample_id)
-
-                        if len(batch_tensors) >= batch_size:
-                            flush_batch()
-
-                    except Exception as img_err:
-                        err_str = str(img_err)
-                        # Check for specific "Output size is too small" error which causes spam
-                        if "Output size is too small" in err_str:
-                            raise Exception(f"Input image too small for model architecture. Please add a 'Resize' step (e.g., 224x224) to your Preprocessing configuration. PyTorch Error: {err_str}")
-
-                        print(f"Error processing sample {sample_id}: {img_err}")
-                        error_count += 1
-                        if error_count > 10:
-                            raise Exception(f"Aborting execution: Too many errors ({error_count}). Last error: {err_str}")
-
-                # Flush any remaining samples
-                flush_batch()
-            
-            end_time = time.perf_counter()
-            total_time_sec = end_time - start_time
-            
-            total_energy_kwh = 0.0
-            emissions_kg = 0.0
-            if tracker:
-                try:
-                    emissions_kg = tracker.stop() or 0.0  # Returns emission in kg CO2 eq
-                    if hasattr(tracker, 'final_emissions_data') and tracker.final_emissions_data:
-                        total_energy_kwh = tracker.final_emissions_data.energy_consumed
-                except Exception as e:
-                    print(f"Error stopping CodeCarbon tracker: {e}")
-
-            # Convert kWh to Joules: 1 kWh = 3.6e6 J
-            total_energy_j = total_energy_kwh * 3_600_000
-            
-            print(f"Processed {total} samples.")
-
-            # 5. Calculate Final Metrics
-            # Basic
-            accuracy = correct / len(all_targets) if len(all_targets) > 0 else 0.0
-            avg_loss = loss_sum / len(all_targets) if len(all_targets) > 0 else 0.0
-
-            # Advanced Metrics using sklearn
-            precision, recall, f1, _ = precision_recall_fscore_support(
-                all_targets, 
-                all_preds, 
-                average='weighted', 
-                zero_division=0
+            # 3. Offload CPU-heavy inference to a thread pool executor
+            #    so the event loop stays free to handle other requests.
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                self._run_inference_sync,
+                model_doc,
+                dataset_doc,
+                preprocessing_doc,
+                execution.config,
+                execution_id,
             )
 
-            # Top-5 Accuracy
-            top5_acc = 0.0
-            if len(all_targets) > 0 and len(all_probs) > 0:
-                top5_correct = 0
-                for i, target in enumerate(all_targets):
-                    # Get indices of top 5 probabilities
-                    probs = all_probs[i]
-                    # Handle case where classes < 5
-                    k = min(5, len(probs))
-                    top_k_indices = probs.argsort()[-k:][::-1]
-                    if target in top_k_indices:
-                        top5_correct += 1
-                top5_acc = top5_correct / len(all_targets)
-
-            # 6. Update Status to COMPLETED
+            # 4. Persist results
             execution.status = ExecutionStatus.COMPLETED
             execution.completed_at = datetime.utcnow()
-            
-            # Helper to get real dataset size
-            real_total_size = dataset_doc.file_count if dataset_doc.file_count and dataset_doc.file_count > 0 else total
-
-            # Advanced Performance Metrics
-            inf_time_ms = (total_time_sec / total * 1000) if total > 0 else 0
-            energy_per_sample_j = (total_energy_j / total) if total > 0 else 0
-            gflops = flops_per_sample / 1e9
-            gflops_per_joule = (gflops * total / total_energy_j) if total_energy_j > 0 else 0
-            emissions_g = float(emissions_kg) * 1000
-            total_time_min = total_time_sec / 60
-            emissions_per_minute_g = (emissions_g / total_time_min) if total_time_min > 0 else 0
-            
-            # Format Helper
-            def fmt(val):
-                return "{:.2f}".format(val)
-
-            execution.metrics = {
-                "accuracy": round(accuracy, 4),
-                "top5_accuracy": round(top5_acc, 4),
-                "loss": round(avg_loss, 4),
-                "precision": round(precision, 4),
-                "recall": round(recall, 4),
-                "f1_score": round(f1, 4),
-                "processed_samples": total,
-                "dataset_size": real_total_size,
-                "total_time_s": fmt(total_time_sec),
-                "time_per_sample_ms": fmt(inf_time_ms),
-                "total_energy_j": fmt(total_energy_j),
-                "energy_per_sample_j": fmt(energy_per_sample_j),
-                "gflops_per_sample": fmt(gflops),
-                "gflops_per_joule": fmt(gflops_per_joule),
-                "emissions": round(emissions_g, 6),  # Total emissions in grams
-                "emissions_per_min": round(emissions_per_minute_g, 6)  # Avg emissions per minute in grams
-            }
+            execution.metrics = result["metrics"]
             await execution.save()
-            print(f"Execution {execution_id} completed. Acc: {accuracy:.2f}, F1: {f1:.2f}")
+            _execution_progress.pop(execution_id, None)
+            _execution_cancelled.discard(execution_id)
+            print(f"Execution {execution_id} completed. Acc: {result['accuracy']:.2f}, F1: {result['f1']:.2f}")
 
-            # --- Log activity ---
+            # 5. Log activity
             try:
                 from app.services.activity_service import ActivityService
                 workspace_doc = await db.workspaces.find_one({"_id": execution.workspace_id})
@@ -392,23 +164,20 @@ class ExecutionService:
                             "execution_id": execution_id,
                             "model_name": model_doc.get("name", "Unknown"),
                             "dataset_name": dataset_doc.name if dataset_doc else "Unknown",
-                            "accuracy": round(float(accuracy), 4),
-                            "f1_score": round(float(f1), 4),
+                            "accuracy": round(float(result["accuracy"]), 4),
+                            "f1_score": round(float(result["f1"]), 4),
                         },
                     )
             except Exception as log_err:
                 print(f"Failed to log execution_completed activity: {log_err}")
 
-            # 7. Generate Report
+            # 6. Generate Report
             pdf_path = None
             try:
                 report_service = ReportService()
-                
-                # Fetch Preprocessing Name and Steps
                 preprocessing_name = "None (Raw Data)"
                 preprocessing_steps = []
                 preprocessing_code = None
-                
                 if preprocessing_doc:
                     preprocessing_name = preprocessing_doc.name
                     if preprocessing_doc.mode == "ui" and preprocessing_doc.steps:
@@ -426,26 +195,24 @@ class ExecutionService:
                     dataset_name=dataset_doc.name,
                     preprocessing_name=preprocessing_name,
                     preprocessing_steps=preprocessing_steps,
-                    preprocessing_code=preprocessing_code
+                    preprocessing_code=preprocessing_code,
                 )
                 pdf_path = report.file_path
                 print(f"Report generated for execution {execution_id}")
             except Exception as report_err:
                 print(f"Failed to generate report: {report_err}")
 
-            # 8. Send Success Email
+            # 7. Send Success Email
             try:
                 db = await get_database()
                 workspace = await db.workspaces.find_one({"_id": execution.workspace_id})
                 if workspace:
                     user = await db.users.find_one({"_id": workspace["owner_id"]})
                     if user and user.get("email"):
-                        # Check notification settings
                         settings = await db.notification_settings.find_one({"user_id": user["_id"]})
                         send_email = True
                         if settings and not settings.get("execution_success", True):
                             send_email = False
-                            
                         if send_email:
                             success, html_content, attachment_base64 = send_execution_result_email(
                                 to_email=user["email"],
@@ -454,10 +221,8 @@ class ExecutionService:
                                 workspace_id=str(workspace["_id"]),
                                 status="completed",
                                 metrics=execution.metrics,
-                                pdf_path=pdf_path
+                                pdf_path=pdf_path,
                             )
-                            
-                            # Log email
                             await db.email_logs.insert_one({
                                 "user_id": user["_id"],
                                 "to_email": user["email"],
@@ -467,9 +232,8 @@ class ExecutionService:
                                 "content_html": html_content,
                                 "attachment_base64": attachment_base64,
                                 "error_message": None if success else "SMTP Error",
-                                "sent_at": datetime.utcnow()
+                                "sent_at": datetime.utcnow(),
                             })
-                            
                             if success:
                                 print(f"Success email sent to {user['email']}")
                             else:
@@ -481,11 +245,21 @@ class ExecutionService:
 
         except Exception as e:
             print(f"Execution failed: {str(e)}")
-            execution.status = ExecutionStatus.FAILED
-            execution.error_message = str(e)
+            if isinstance(e, InterruptedError):
+                execution.status = ExecutionStatus.CANCELLED
+                execution.error_message = "Cancelled by user."
+            else:
+                execution.status = ExecutionStatus.FAILED
+                execution.error_message = str(e)
             execution.completed_at = datetime.utcnow()
             await execution.save()
-            
+            _execution_progress.pop(execution_id, None)
+            _execution_cancelled.discard(execution_id)
+
+            # No failure email for user-initiated cancellations
+            if isinstance(e, InterruptedError):
+                return
+
             # Send Failure Email
             try:
                 db = await get_database()
@@ -493,12 +267,10 @@ class ExecutionService:
                 if workspace:
                     user = await db.users.find_one({"_id": workspace["owner_id"]})
                     if user and user.get("email"):
-                        # Check notification settings
                         settings = await db.notification_settings.find_one({"user_id": user["_id"]})
                         send_email = True
                         if settings and not settings.get("execution_failure", True):
                             send_email = False
-                            
                         if send_email:
                             success, html_content, attachment_base64 = send_execution_result_email(
                                 to_email=user["email"],
@@ -506,10 +278,8 @@ class ExecutionService:
                                 execution_id=str(execution.id),
                                 workspace_id=str(workspace["_id"]),
                                 status="failed",
-                                error_message=str(e)
+                                error_message=str(e),
                             )
-                            
-                            # Log email
                             await db.email_logs.insert_one({
                                 "user_id": user["_id"],
                                 "to_email": user["email"],
@@ -519,9 +289,8 @@ class ExecutionService:
                                 "content_html": html_content,
                                 "attachment_base64": attachment_base64,
                                 "error_message": None if success else "SMTP Error",
-                                "sent_at": datetime.utcnow()
+                                "sent_at": datetime.utcnow(),
                             })
-                            
                             if success:
                                 print(f"Failure email sent to {user['email']}")
                             else:
@@ -530,6 +299,243 @@ class ExecutionService:
                             print(f"Failure email skipped for {user['email']} due to notification settings.")
             except Exception as email_err:
                 print(f"Failed to process failure email: {email_err}")
+
+    def _run_inference_sync(self, model_doc, dataset_doc, preprocessing_doc, config, execution_id: str) -> dict:
+        """
+        Synchronous inference pipeline — runs in a thread pool executor.
+        Returns {"metrics": dict, "accuracy": float, "f1": float}.
+        """
+        import torch.nn as nn
+
+        # Device
+        device = torch.device(config.get("device", "cpu"))
+        if config.get("device") == "cuda" and not torch.cuda.is_available():
+            print("CUDA not available, falling back to CPU")
+            device = torch.device("cpu")
+
+        print(f"Loading model {model_doc['name']} on {device}")
+
+        model_classes = sorted(dataset_doc.classes) if dataset_doc.classes else []
+        num_classes = len(model_classes) if model_classes else 10
+
+        model = self._load_model_from_disk(model_doc, device, num_classes)
+        model.eval()
+
+        if device.type == "cuda":
+            torch.backends.cudnn.benchmark = True
+
+        preprocess = self._build_transforms(preprocessing_doc)
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(model_classes)}
+        limit = config.get("limit_samples", 0)
+
+        print(f"Dataset Classes in DB: {dataset_doc.classes}")
+        print(f"Computed Class to Index Map: {class_to_idx}")
+
+        label_map = {}
+        if dataset_doc.schema_info and "label_map" in dataset_doc.schema_info:
+            label_map = dataset_doc.schema_info["label_map"]
+            print(f"Using explicit label map from dataset schema: {label_map}")
+
+        dataset_iterator = self._get_samples_iterator(dataset_doc, limit)
+
+        # Total samples estimate for progress tracking
+        total_samples = limit if limit > 0 else (getattr(dataset_doc, "file_count", None) or 0)
+        _execution_progress[execution_id] = 0
+
+        correct = 0
+        total = 0
+        loss_sum = 0.0
+        criterion = nn.CrossEntropyLoss()
+        processed_count = 0
+        error_count = 0
+        flops_per_sample = 0
+
+        all_targets = []
+        all_preds = []
+        all_probs = []
+
+        batch_size = int(config.get("batch_size", 32))
+        batch_tensors = []
+        batch_label_names = []
+        batch_sample_ids = []
+
+        # CodeCarbon tracker
+        tracker = None
+        if EmissionsTracker:
+            try:
+                tracker = EmissionsTracker(
+                    project_name=f"exec_{execution_id}",
+                    measure_power_secs=1,
+                    log_level="error",
+                    save_to_file=False,
+                )
+                tracker.start()
+            except Exception as e:
+                print(f"CodeCarbon Warning: {e}")
+                tracker = None
+        else:
+            print("CodeCarbon not installed. Energy metrics will be unavailable.")
+
+        start_time = time.perf_counter()
+
+        def flush_batch():
+            nonlocal correct, total, loss_sum, flops_per_sample, processed_count
+
+            if not batch_tensors:
+                return
+
+            input_batch = torch.stack(batch_tensors).to(device)
+
+            if processed_count == 0 and thop and model:
+                try:
+                    macs, _ = thop.profile(model, inputs=(input_batch[:1],), verbose=False)
+                    flops_per_sample = macs * 2
+                except Exception as thop_e:
+                    print(f"THOP Warning: {thop_e}")
+
+            outputs = model(input_batch)
+            probs_batch = torch.nn.functional.softmax(outputs, dim=1)
+            _, predicted_batch = torch.max(outputs, 1)
+
+            for i, (lname, sid) in enumerate(zip(batch_label_names, batch_sample_ids)):
+                if processed_count < 3:
+                    print(f"Sample: {sid}, Extracted Label: '{lname}'")
+
+                target_idx = -1
+                if lname in label_map:
+                    try:
+                        target_idx = int(label_map[lname])
+                    except ValueError:
+                        print(f"Invalid index in label_map for {lname}: {label_map[lname]}")
+                elif lname and lname in class_to_idx:
+                    target_idx = class_to_idx[lname]
+
+                if target_idx >= 0:
+                    num_outputs = outputs.shape[1]
+                    if target_idx < num_outputs:
+                        target = torch.tensor([target_idx]).to(device)
+                        loss = criterion(outputs[i : i + 1], target)
+                        loss_sum += loss.item()
+                        if predicted_batch[i].item() == target_idx:
+                            correct += 1
+                        all_targets.append(target_idx)
+                        all_preds.append(predicted_batch[i].item())
+                        all_probs.append(probs_batch[i].cpu().numpy())
+                    else:
+                        if processed_count < 5:
+                            print(
+                                f"Warning: Label '{lname}' (idx {target_idx}) out of bounds "
+                                f"for model output size {num_outputs}. Skipping."
+                            )
+
+                total += 1
+                processed_count += 1
+
+            # Update in-memory progress after each batch
+            if total_samples > 0:
+                _execution_progress[execution_id] = min(99, int(processed_count / total_samples * 100))
+
+            batch_tensors.clear()
+            batch_label_names.clear()
+            batch_sample_ids.clear()
+
+        with torch.no_grad():
+            for sample_id, image, label_name in dataset_iterator:
+                if execution_id in _execution_cancelled:
+                    raise InterruptedError("Execution cancelled by user.")
+                try:
+                    if image.mode != "RGB":
+                        image = image.convert("RGB")
+                    tensor = preprocess(image)
+                    batch_tensors.append(tensor)
+                    batch_label_names.append(label_name)
+                    batch_sample_ids.append(sample_id)
+                    if len(batch_tensors) >= batch_size:
+                        flush_batch()
+                except Exception as img_err:
+                    err_str = str(img_err)
+                    if "Output size is too small" in err_str:
+                        raise Exception(
+                            f"Input image too small for model architecture. Please add a 'Resize' step "
+                            f"(e.g., 224x224) to your Preprocessing configuration. PyTorch Error: {err_str}"
+                        )
+                    print(f"Error processing sample {sample_id}: {img_err}")
+                    error_count += 1
+                    if error_count > 10:
+                        raise Exception(f"Aborting execution: Too many errors ({error_count}). Last error: {err_str}")
+            flush_batch()
+
+        end_time = time.perf_counter()
+        total_time_sec = end_time - start_time
+
+        total_energy_kwh = 0.0
+        emissions_kg = 0.0
+        if tracker:
+            try:
+                emissions_kg = tracker.stop() or 0.0
+                if hasattr(tracker, "final_emissions_data") and tracker.final_emissions_data:
+                    total_energy_kwh = tracker.final_emissions_data.energy_consumed
+            except Exception as e:
+                print(f"Error stopping CodeCarbon tracker: {e}")
+
+        total_energy_j = total_energy_kwh * 3_600_000
+
+        print(f"Processed {total} samples.")
+
+        accuracy = correct / len(all_targets) if len(all_targets) > 0 else 0.0
+        avg_loss = loss_sum / len(all_targets) if len(all_targets) > 0 else 0.0
+
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_targets, all_preds, average="weighted", zero_division=0
+        )
+
+        top5_acc = 0.0
+        if len(all_targets) > 0 and len(all_probs) > 0:
+            top5_correct = 0
+            for i, target in enumerate(all_targets):
+                probs = all_probs[i]
+                k = min(5, len(probs))
+                top_k_indices = probs.argsort()[-k:][::-1]
+                if target in top_k_indices:
+                    top5_correct += 1
+            top5_acc = top5_correct / len(all_targets)
+
+        real_total_size = (
+            dataset_doc.file_count
+            if dataset_doc.file_count and dataset_doc.file_count > 0
+            else total
+        )
+        inf_time_ms = (total_time_sec / total * 1000) if total > 0 else 0
+        energy_per_sample_j = (total_energy_j / total) if total > 0 else 0
+        gflops = flops_per_sample / 1e9
+        gflops_per_joule = (gflops * total / total_energy_j) if total_energy_j > 0 else 0
+        emissions_g = float(emissions_kg) * 1000
+        total_time_min = total_time_sec / 60
+        emissions_per_minute_g = (emissions_g / total_time_min) if total_time_min > 0 else 0
+
+        def fmt(val):
+            return "{:.2f}".format(val)
+
+        metrics = {
+            "accuracy": round(accuracy, 4),
+            "top5_accuracy": round(top5_acc, 4),
+            "loss": round(avg_loss, 4),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1_score": round(f1, 4),
+            "processed_samples": total,
+            "dataset_size": real_total_size,
+            "total_time_s": fmt(total_time_sec),
+            "time_per_sample_ms": fmt(inf_time_ms),
+            "total_energy_j": fmt(total_energy_j),
+            "energy_per_sample_j": fmt(energy_per_sample_j),
+            "gflops_per_sample": fmt(gflops),
+            "gflops_per_joule": fmt(gflops_per_joule),
+            "emissions": round(emissions_g, 6),
+            "emissions_per_min": round(emissions_per_minute_g, 6),
+        }
+
+        return {"metrics": metrics, "accuracy": accuracy, "f1": float(f1)}
 
     def _build_transforms(self, preprocessing_doc: Optional[Preprocessing]) -> transforms.Compose:
         """
@@ -833,3 +839,31 @@ class ExecutionService:
 
     async def get_execution(self, execution_id: str) -> Optional[Execution]:
         return await Execution.get(PydanticObjectId(execution_id))
+
+    def get_progress(self, execution_id: str) -> int:
+        """Return current progress (0-100) for a running execution."""
+        return _execution_progress.get(execution_id, 0)
+
+    async def cancel_execution(self, execution_id: str) -> bool:
+        """Signal the running inference thread to stop at the next batch boundary.
+        If no active thread is found (e.g. after a server restart), forcibly marks
+        the execution as CANCELLED in the DB immediately."""
+        execution = await self.get_execution(execution_id)
+        if not execution:
+            return False
+        if execution.status not in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+            return False
+
+        _execution_cancelled.add(execution_id)
+
+        # For PENDING or RUNNING executions that have no live thread
+        # (server restart, orphaned state), cancel immediately in the DB.
+        no_active_thread = execution_id not in _execution_progress
+        if execution.status == ExecutionStatus.PENDING or no_active_thread:
+            execution.status = ExecutionStatus.CANCELLED
+            execution.error_message = "Cancelled by user."
+            execution.completed_at = datetime.utcnow()
+            await execution.save()
+            _execution_progress.pop(execution_id, None)
+            _execution_cancelled.discard(execution_id)
+        return True

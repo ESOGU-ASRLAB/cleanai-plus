@@ -18,6 +18,11 @@ from app.schemas.optimization import OptimizationCreate
 from app.database.mongodb import get_database
 from app.services.email_service import send_optimization_result_email
 
+# In-memory cancellation signals: optimization_id -> cancel requested
+_optimization_cancelled: set = set()
+# Tracks actively running optimization threads (cleared on completion/failure)
+_optimization_running: set = set()
+
 
 class OptimizationService:
 
@@ -43,6 +48,29 @@ class OptimizationService:
 
     async def get_optimization(self, optimization_id: str) -> Optional[Optimization]:
         return await Optimization.get(PydanticObjectId(optimization_id))
+
+    def get_cancel_requested(self, optimization_id: str) -> bool:
+        return optimization_id in _optimization_cancelled
+
+    async def cancel_optimization(self, optimization_id: str) -> bool:
+        """Signal the running pruning thread to stop, or cancel immediately if orphaned."""
+        optimization = await self.get_optimization(optimization_id)
+        if not optimization:
+            return False
+        if optimization.status not in (OptimizationStatus.PENDING, OptimizationStatus.RUNNING):
+            return False
+        _optimization_cancelled.add(optimization_id)
+        no_active_thread = (
+            optimization.status == OptimizationStatus.PENDING
+            or optimization_id not in _optimization_running
+        )
+        if no_active_thread:
+            optimization.status = OptimizationStatus.CANCELLED
+            optimization.error_message = "Cancelled by user."
+            optimization.completed_at = datetime.utcnow()
+            await optimization.save()
+            _optimization_cancelled.discard(optimization_id)
+        return True
 
     async def get_model_layers(self, workspace_id: str, model_id: str) -> List[Dict[str, str]]:
         """Load a PyTorch model and return its prunable named layers."""
@@ -98,6 +126,11 @@ class OptimizationService:
             optimization.started_at = datetime.utcnow()
             await optimization.save()
 
+            # Check if cancelled before we even start heavy work
+            if optimization_id in _optimization_cancelled:
+                raise InterruptedError("Cancelled by user.")
+
+            _optimization_running.add(optimization_id)
             db = await get_database()
 
             # --- Fetch resources ---
@@ -185,6 +218,7 @@ class OptimizationService:
                 bn_scale_group_lasso,
                 user_ignored,
                 ignore_head,
+                optimization_id,
             )
 
             pruned_model = result["model"]
@@ -254,6 +288,7 @@ class OptimizationService:
                 f"Params: {stats.get('base_params',0):,} → {stats.get('pruned_params',0):,} "
                 f"({stats.get('param_reduction_pct',0):.1f}% reduction)"
             )
+            _optimization_cancelled.discard(optimization_id)
 
             # --- Log activity ---
             try:
@@ -313,12 +348,23 @@ class OptimizationService:
 
         except Exception as e:
             import traceback
-            traceback.print_exc()
-            optimization.status = OptimizationStatus.FAILED
-            optimization.error_message = str(e)
+            if not isinstance(e, InterruptedError):
+                traceback.print_exc()
+            _optimization_cancelled.discard(optimization_id)
+            _optimization_running.discard(optimization_id)
+
+            if isinstance(e, InterruptedError):
+                optimization.status = OptimizationStatus.CANCELLED
+                optimization.error_message = "Cancelled by user."
+            else:
+                optimization.status = OptimizationStatus.FAILED
+                optimization.error_message = str(e)
             optimization.completed_at = datetime.utcnow()
             await optimization.save()
-            print(f"Optimization {optimization_id} failed: {e}")
+            print(f"Optimization {optimization_id} {'cancelled' if isinstance(e, InterruptedError) else 'failed'}: {e}")
+
+            if isinstance(e, InterruptedError):
+                return
 
             # --- Log activity ---
             try:
@@ -596,6 +642,7 @@ class OptimizationService:
         bn_scale_group_lasso: bool = False,
         user_ignored: list = None,
         ignore_head: bool = True,
+        optimization_id: str = "",
     ) -> Dict[str, Any]:
         """Apply torch-pruning structural pruning to the model."""
         try:
@@ -730,7 +777,11 @@ class OptimizationService:
         try:
             pruner = PrunerClass(model, example_inputs, **pruner_kwargs)
             for _ in range(iterative_steps):
+                if optimization_id and optimization_id in _optimization_cancelled:
+                    raise InterruptedError("Cancelled by user.")
                 pruner.step()
+        except InterruptedError:
+            raise
         except Exception as e:
             raise Exception(
                 f"Pruning step failed: {e}. "

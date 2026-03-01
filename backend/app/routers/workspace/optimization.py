@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from app.services.workspace.optimization_service import OptimizationService
 from app.models.auth.user import User
+from app.models.workspace.optimization import OptimizationStatus
 from app.dependencies import get_current_user
 from app.schemas.optimization import OptimizationCreate, OptimizationResponse
 
@@ -63,3 +64,24 @@ async def get_optimization(
     if not opt or str(opt.workspace_id) != workspace_id:
         raise HTTPException(status_code=404, detail="Optimization not found")
     return opt
+
+
+@router.post("/{optimization_id}/cancel", status_code=status.HTTP_200_OK)
+async def cancel_optimization(
+    workspace_id: str,
+    optimization_id: str,
+    current_user: User = Depends(get_current_user),
+    service: OptimizationService = Depends(get_optimization_service),
+):
+    """Cancel a pending or running optimization job."""
+    opt = await service.get_optimization(optimization_id)
+    if not opt or str(opt.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Optimization not found")
+
+    cancelled = await service.cancel_optimization(optimization_id)
+    if not cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Optimization is not in a cancellable state.",
+        )
+    return {"message": "Cancellation requested.", "optimization_id": optimization_id}

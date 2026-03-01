@@ -17,6 +17,8 @@ import {
   FiTerminal,
   FiX,
   FiFileText,
+  FiStopCircle,
+  FiChevronRight,
 } from "react-icons/fi";
 
 const EXECUTION_STEPS = [
@@ -29,12 +31,13 @@ const EXECUTION_STEPS = [
 
 const ExecutionTab = ({ workspace, initialExecutionId }) => {
   const { token } = useAuth();
-  const { showAlert } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
   const [executions, setExecutions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedExecution, setSelectedExecution] = useState(null);
   const [showFullError, setShowFullError] = useState(false);
+  const [executionProgress, setExecutionProgress] = useState({});
 
   // Wizard State
   const [activeStep, setActiveStep] = useState(1);
@@ -55,6 +58,58 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
     fetchExecutions();
     fetchAllResources();
   }, [workspace.id]);
+
+  // Auto-refresh execution list while any execution is running/pending
+  const runningCount = executions.filter(
+    (e) => e.status === "running" || e.status === "pending",
+  ).length;
+  useEffect(() => {
+    if (runningCount === 0) return;
+    const interval = setInterval(fetchExecutions, 3000);
+    return () => clearInterval(interval);
+  }, [runningCount]);
+
+  // Sync selectedExecution when the list updates (e.g. status change)
+  useEffect(() => {
+    if (!selectedExecution) return;
+    const updated = executions.find((e) => e.id === selectedExecution.id);
+    if (updated && JSON.stringify(updated) !== JSON.stringify(selectedExecution)) {
+      setSelectedExecution(updated);
+    }
+  }, [executions]);
+
+  // Poll progress for ALL running executions (feeds both list rows and detail panel)
+  useEffect(() => {
+    const runningExecs = executions.filter((e) => e.status === "running");
+    if (runningExecs.length === 0) return;
+
+    const fetchAllProgress = async () => {
+      await Promise.all(
+        runningExecs.map(async (exec) => {
+          try {
+            const res = await fetch(
+              `http://localhost:8000/api/workspaces/${workspace.id}/executions/${exec.id}/progress`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              setExecutionProgress((prev) => ({
+                ...prev,
+                [exec.id]: data.progress,
+              }));
+            }
+          } catch (e) {
+            console.error("Progress poll error:", e);
+          }
+        }),
+      );
+    };
+
+    fetchAllProgress();
+    const interval = setInterval(fetchAllProgress, 2000);
+    return () => clearInterval(interval);
+    // Re-run when the set of running execution ids changes
+  }, [executions.map((e) => `${e.id}:${e.status}`).join(",")]);
 
   const fetchAllResources = async () => {
     const [m, d, p] = await Promise.all([
@@ -156,6 +211,30 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleCancelExecution = async (executionId, e) => {
+    if (e) e.stopPropagation();
+    const confirmed = await showConfirm(
+      "Are you sure you want to cancel this execution? This action cannot be undone.",
+      "Cancel Execution",
+      "warning",
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${workspace.id}/executions/${executionId}/cancel`,
+        { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.ok) {
+        fetchExecutions();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert(data.detail || "Could not cancel execution.", "Cancel Failed", "error");
+      }
+    } catch (err) {
+      console.error("Cancel error:", err);
     }
   };
 
@@ -517,7 +596,20 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
             Manage and monitor your model inference runs
           </p>
         </div>
-        <Button onClick={handleStartWizard} className="flex items-center">
+        <Button
+          onClick={handleStartWizard}
+          disabled={executions.some(
+            (e) => e.status === "running" || e.status === "pending",
+          )}
+          title={
+            executions.some(
+              (e) => e.status === "running" || e.status === "pending",
+            )
+              ? "An execution is already in progress"
+              : undefined
+          }
+          className="flex items-center"
+        >
           <FiPlay className="mr-2" /> New Execution
         </Button>
       </div>
@@ -575,82 +667,134 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {executions.map((exec) => (
-                    <tr
-                      key={exec.id}
-                      onClick={() => {
-                        setSelectedExecution(exec);
-                        setShowFullError(false);
-                      }}
-                      className={`cursor-pointer transition-colors ${
-                        selectedExecution?.id === exec.id
-                          ? "bg-blue-50"
-                          : "hover:bg-gray-50"
-                      }`}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                      ${
-                        exec.status === "completed"
-                          ? "bg-green-100 text-green-800"
-                          : exec.status === "running"
-                            ? "bg-blue-100 text-blue-800"
-                            : exec.status === "failed"
-                              ? "bg-red-100 text-red-800"
-                              : "bg-gray-100 text-gray-800"
-                      }`}
-                        >
-                          {exec.status}
-                        </span>
-                      </td>
-                      {!selectedExecution && (
-                        <>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {models.find(
-                              (m) => (m.id || m._id) === exec.model_id,
-                            )?.name || exec.model_id}
+                    <React.Fragment key={exec.id}>
+                      <tr
+                        onClick={() => {
+                          setSelectedExecution(exec);
+                          setShowFullError(false);
+                        }}
+                        className={`cursor-pointer transition-colors ${
+                          selectedExecution?.id === exec.id
+                            ? "bg-blue-50"
+                            : "hover:bg-gray-50"
+                        } ${exec.status === "running" ? "[&>td]:pb-0 [&>td]:pt-4" : ""}`}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        ${
+                          exec.status === "completed"
+                            ? "bg-green-100 text-green-800"
+                            : exec.status === "running"
+                              ? "bg-blue-100 text-blue-800"
+                              : exec.status === "failed" || exec.status === "cancelled"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-gray-100 text-gray-800"
+                        }`}
+                          >
+                            {exec.status}
+                          </span>
+                        </td>
+                        {!selectedExecution && (
+                          <>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {models.find(
+                                (m) => (m.id || m._id) === exec.model_id,
+                              )?.name || exec.model_id}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {datasets.find(
+                                (d) => (d.id || d._id) === exec.dataset_id,
+                              )?.name || exec.dataset_id}
+                            </td>
+                          </>
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
+                          {exec.id}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(exec.created_at).toLocaleString()}
+                        </td>
+                        {!selectedExecution && (
+                          <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                            {exec.status === "completed" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownloadReport(exec.id);
+                                }}
+                                title="Download PDF Report"
+                                className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                              >
+                                <FiFileText size={18} />
+                              </button>
+                            )}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {datasets.find(
-                              (d) => (d.id || d._id) === exec.dataset_id,
-                            )?.name || exec.dataset_id}
-                          </td>
-                        </>
-                      )}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                        {exec.id}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(exec.created_at).toLocaleString()}
-                      </td>
-                      {!selectedExecution && (
-                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                          {exec.status === "completed" && (
+                        )}
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-3">
+                            {(exec.status === "running" ||
+                              exec.status === "pending") && (
+                              <button
+                                onClick={(e) =>
+                                  handleCancelExecution(exec.id, e)
+                                }
+                                title="Cancel Execution"
+                                className="text-gray-400 hover:text-red-600 transition-colors"
+                              >
+                                <FiStopCircle size={16} />
+                              </button>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDownloadReport(exec.id);
+                                setSelectedExecution(exec);
                               }}
-                              title="Download PDF Report"
-                              className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                              title="View Details"
+                              className="text-primary-600 hover:text-primary-900"
                             >
-                              <FiFileText size={18} />
+                              <FiChevronRight size={18} />
                             </button>
-                          )}
+                          </div>
                         </td>
-                      )}
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
+                      </tr>
+                      {exec.status === "running" && (
+                        <tr
+                          style={{ borderTop: "none" }}
+                          className={`cursor-pointer ${
+                            selectedExecution?.id === exec.id
+                              ? "bg-blue-50"
+                              : ""
+                          }`}
+                          onClick={() => {
                             setSelectedExecution(exec);
+                            setShowFullError(false);
                           }}
-                          className="text-primary-600 hover:text-primary-900"
                         >
-                          Details
-                        </button>
-                      </td>
-                    </tr>
+                          <td className="px-6 pb-3" />
+                          <td
+                            colSpan={!selectedExecution ? 4 : 2}
+                            className="px-6 pt-1.5 pb-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="bg-primary-600 h-1.5 rounded-full transition-all duration-500 ease-out"
+                                  style={{
+                                    width: `${executionProgress[exec.id] ?? 0}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-gray-400 font-mono w-7 text-right shrink-0">
+                                {executionProgress[exec.id] ?? 0}%
+                              </span>
+                            </div>
+                          </td>
+                          {!selectedExecution && <td className="pb-3" />}
+                          <td className="px-6 pb-3" />
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -672,7 +816,7 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                               ? "bg-green-100 text-green-800"
                               : selectedExecution.status === "running"
                                 ? "bg-blue-100 text-blue-800"
-                                : selectedExecution.status === "failed"
+                                : selectedExecution.status === "failed" || selectedExecution.status === "cancelled"
                                   ? "bg-red-100 text-red-800"
                                   : "bg-gray-100 text-gray-800"
                           }`}
@@ -685,6 +829,18 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
+                    {(selectedExecution.status === "running" ||
+                      selectedExecution.status === "pending") && (
+                      <button
+                        onClick={(e) =>
+                          handleCancelExecution(selectedExecution.id, e)
+                        }
+                        title="Cancel Execution"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        <FiStopCircle size={18} />
+                      </button>
+                    )}
                     {selectedExecution.status === "completed" && (
                       <button
                         onClick={() =>
@@ -706,6 +862,35 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
                 </div>
 
                 <div className="p-4 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">
+                  {/* Progress Bar — visible while running/pending */}
+                  {(selectedExecution.status === "running" ||
+                    selectedExecution.status === "pending") && (
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span className="font-medium">
+                          {selectedExecution.status === "pending"
+                            ? "Waiting to start…"
+                            : "Processing…"}
+                        </span>
+                        <span className="font-mono">
+                          {executionProgress[selectedExecution.id] ?? 0}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-primary-600 h-2 rounded-full transition-all duration-500 ease-out"
+                          style={{
+                            width: `${
+                              selectedExecution.status === "pending"
+                                ? 0
+                                : (executionProgress[selectedExecution.id] ?? 0)
+                            }%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Info Grid */}
                   <div className="grid grid-cols-2 gap-4">
                     {/* Model Info */}

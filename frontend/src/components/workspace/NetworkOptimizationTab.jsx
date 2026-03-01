@@ -20,6 +20,8 @@ import {
   FiTrendingDown,
   FiChevronDown,
   FiChevronUp,
+  FiChevronRight,
+  FiStopCircle,
 } from "react-icons/fi";
 
 const OPTIMIZATION_STEPS = [
@@ -90,6 +92,7 @@ const StatusBadge = ({ status }) => {
     completed: "bg-green-100 text-green-800",
     running: "bg-blue-100 text-blue-800 animate-pulse",
     failed: "bg-red-100 text-red-800",
+    cancelled: "bg-red-100 text-red-800",
     pending: "bg-yellow-100 text-yellow-800",
   };
   return (
@@ -103,7 +106,7 @@ const StatusBadge = ({ status }) => {
 
 const NetworkOptimizationTab = ({ workspace }) => {
   const { token } = useAuth();
-  const { showAlert } = useAlert();
+  const { showAlert, showConfirm } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
   const [optimizations, setOptimizations] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -305,6 +308,30 @@ const NetworkOptimizationTab = ({ workspace }) => {
   const canProceed = () => {
     if (activeStep === 1) return !!selectedModel;
     return true;
+  };
+
+  const handleCancelOptimization = async (optimizationId, e) => {
+    if (e) e.stopPropagation();
+    const confirmed = await showConfirm(
+      "Are you sure you want to cancel this optimization? This action cannot be undone.",
+      "Cancel Optimization",
+      "warning",
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${workspaceId}/optimizations/${optimizationId}/cancel`,
+        { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.ok) {
+        fetchOptimizations();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert(data.detail || "Could not cancel optimization.", "Cancel Failed", "error");
+      }
+    } catch (err) {
+      console.error("Cancel error:", err);
+    }
   };
 
   // ------------------------------------------------------------------ //
@@ -1153,7 +1180,20 @@ const NetworkOptimizationTab = ({ workspace }) => {
             Prune and compress your PyTorch models using torch-pruning
           </p>
         </div>
-        <Button onClick={handleStartWizard} className="flex items-center">
+        <Button
+          onClick={handleStartWizard}
+          disabled={optimizations.some(
+            (o) => o.status === "running" || o.status === "pending",
+          )}
+          title={
+            optimizations.some(
+              (o) => o.status === "running" || o.status === "pending",
+            )
+              ? "An optimization is already in progress"
+              : undefined
+          }
+          className="flex items-center"
+        >
           <FiZap className="mr-2" /> Create Optimized Model
         </Button>
       </div>
@@ -1240,15 +1280,27 @@ const NetworkOptimizationTab = ({ workspace }) => {
                         {new Date(opt.created_at).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedOptimization(opt);
-                          }}
-                          className="text-primary-600 hover:text-primary-900"
-                        >
-                          Details
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          {(opt.status === "running" || opt.status === "pending") && (
+                            <button
+                              onClick={(e) => handleCancelOptimization(opt.id, e)}
+                              title="Cancel Optimization"
+                              className="text-gray-400 hover:text-red-600 transition-colors"
+                            >
+                              <FiStopCircle size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedOptimization(opt);
+                            }}
+                            title="View Details"
+                            className="text-primary-600 hover:text-primary-900"
+                          >
+                            <FiChevronRight size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1273,12 +1325,26 @@ const NetworkOptimizationTab = ({ workspace }) => {
                       ID: {selectedOptimization.id}
                     </p>
                   </div>
-                  <button
-                    onClick={() => setSelectedOptimization(null)}
-                    className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
-                  >
-                    <FiX size={18} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    {(selectedOptimization.status === "running" ||
+                      selectedOptimization.status === "pending") && (
+                      <button
+                        onClick={(e) =>
+                          handleCancelOptimization(selectedOptimization.id, e)
+                        }
+                        title="Cancel Optimization"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        <FiStopCircle size={18} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setSelectedOptimization(null)}
+                      className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                      <FiX size={18} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Panel body */}
