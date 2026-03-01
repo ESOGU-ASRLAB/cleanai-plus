@@ -172,6 +172,7 @@ class OptimizationService:
             bn_scale_group_lasso = bool(config.get("bn_scale_group_lasso", False))
             ignored_layer_names: List[str] = config.get("ignored_layer_names", [])
             ignore_head = bool(config.get("ignore_head", True))
+            taylor_num_samples = max(1, int(config.get("taylor_num_samples", 1)))
 
             device = torch.device(device_str)
             if device_str == "cuda" and not torch.cuda.is_available():
@@ -190,6 +191,21 @@ class OptimizationService:
                 device,
                 config,
             )
+
+            # --- Get calibration samples for Taylor gradient pass ---
+            # Only collected when Taylor importance is selected; avoids unnecessary I/O otherwise.
+            calibration_inputs = None
+            if importance_type == "taylor" and taylor_num_samples > 1:
+                calibration_inputs = await loop.run_in_executor(
+                    None,
+                    self._get_calibration_samples,
+                    dataset_doc,
+                    preprocessing_doc,
+                    device,
+                    config,
+                    taylor_num_samples,
+                    example_inputs,
+                )
 
             # --- Load model ---
             model = await loop.run_in_executor(
@@ -219,6 +235,7 @@ class OptimizationService:
                 user_ignored,
                 ignore_head,
                 optimization_id,
+                calibration_inputs,
             )
 
             pruned_model = result["model"]
@@ -467,6 +484,50 @@ class OptimizationService:
 
         return example, num_classes
 
+    def _get_calibration_samples(
+        self,
+        dataset_doc,
+        preprocessing_doc,
+        device: torch.device,
+        config: dict,
+        n: int,
+        fallback_input: torch.Tensor,
+    ) -> List[torch.Tensor]:
+        """Return up to *n* individual tensors from the dataset for gradient accumulation.
+
+        Falls back to repeating *fallback_input* (single random/first-image tensor)
+        when no dataset is available or fewer than *n* images are found.
+        """
+        from PIL import Image
+
+        samples: List[torch.Tensor] = []
+
+        if dataset_doc:
+            preprocess = self._build_transforms(preprocessing_doc)
+            valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+            dataset_root = dataset_doc.path
+
+            for root, _dirs, files in os.walk(dataset_root):
+                for file in files:
+                    if len(samples) >= n:
+                        break
+                    if os.path.splitext(file)[1].lower() in valid_extensions:
+                        try:
+                            img = Image.open(os.path.join(root, file))
+                            if img.mode != "RGB":
+                                img = img.convert("RGB")
+                            samples.append(preprocess(img).unsqueeze(0).to(device))
+                        except Exception:
+                            continue
+                if len(samples) >= n:
+                    break
+
+        # Pad with the fallback (first image / random tensor) if not enough real images
+        while len(samples) < n:
+            samples.append(fallback_input)
+
+        return samples
+
     def _build_transforms(self, preprocessing_doc):
         """Build torchvision transforms from preprocessing definition."""
         from torchvision import transforms
@@ -643,6 +704,7 @@ class OptimizationService:
         user_ignored: list = None,
         ignore_head: bool = True,
         optimization_id: str = "",
+        calibration_inputs: Optional[List[torch.Tensor]] = None,
     ) -> Dict[str, Any]:
         """Apply torch-pruning structural pruning to the model."""
         try:
@@ -733,12 +795,18 @@ class OptimizationService:
         # compute_importance context manager to populate _importance attributes.
         # ------------------------------------------------------------------ #
         if gradient_based:
+            # Use calibration_inputs (N real images) when available; fall back to
+            # the single example_inputs. Gradients are accumulated across all samples
+            # so the importance scores are averaged over the provided data distribution.
+            cal_inputs = calibration_inputs if calibration_inputs else [example_inputs]
             model.train()
+            model.zero_grad()
             try:
-                output = model(example_inputs)
-                # Use sum of outputs as a surrogate scalar loss
-                loss = output.sum()
-                loss.backward()
+                for inp in cal_inputs:
+                    output = model(inp)
+                    # Surrogate scalar loss: sum of logits (no labels needed)
+                    loss = output.sum()
+                    loss.backward()
             except Exception as e:
                 raise Exception(
                     f"Taylor importance requires a gradient pass, which failed: {e}. "

@@ -130,6 +130,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
     isomorphic: false,
     bn_scale_reg: 0.00001,
     bn_scale_group_lasso: false,
+    taylor_num_samples: 16,
     ignore_head: true,
     ignored_layer_names: [],
   });
@@ -253,6 +254,7 @@ const NetworkOptimizationTab = ({ workspace }) => {
       isomorphic: false,
       bn_scale_reg: 0.00001,
       bn_scale_group_lasso: false,
+      taylor_num_samples: 16,
       ignore_head: true,
       ignored_layer_names: [],
     });
@@ -748,6 +750,42 @@ const NetworkOptimizationTab = ({ workspace }) => {
             </button>
           </div>
 
+          {/* Taylor-specific parameters */}
+          {config.importance_type === "taylor" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Calibration Samples
+              </label>
+              <div className="flex rounded-md shadow-sm">
+                <input
+                  type="number"
+                  min="1"
+                  max="256"
+                  value={config.taylor_num_samples}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      taylor_num_samples: Math.max(1, parseInt(e.target.value) || 1),
+                    })
+                  }
+                  className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
+                />
+                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                  / {selectedDataset?.file_count ?? "—"} samples
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Number of images used for the backward pass to compute Taylor importance scores.
+                More samples → more representative gradients, but slower.
+                {!selectedDataset && (
+                  <span className="text-amber-600 font-medium">
+                    {" "}No dataset selected — a random tensor will be repeated for each sample.
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           {/* BNScale-specific parameters */}
           {config.importance_type === "bn_scale" && (
             <>
@@ -1064,6 +1102,12 @@ const NetworkOptimizationTab = ({ workspace }) => {
                     {config.bn_scale_group_lasso ? "Yes" : "No"}
                   </li>
                 </>
+              )}
+              {config.importance_type === "taylor" && (
+                <li>
+                  <span className="text-gray-500">Calibration Samples: </span>
+                  {config.taylor_num_samples}
+                </li>
               )}
             </ul>
           </dd>
