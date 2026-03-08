@@ -6,7 +6,7 @@ const RegisterPage = () => {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Start your journey with PyTorch Model Platform"
+      subtitle="Start optimizing your AI models with CleanAI+"
     >
       <RegisterForm />
     </AuthLayout>

@@ -48,10 +48,10 @@ const AuthLayout = ({ children, title, subtitle }) => {
           <div className="space-y-8">
             <div>
               <h1 className="text-4xl xl:text-5xl font-bold mb-4">
-                PyTorch Model Platform
+                CleanAI+
               </h1>
               <p className="text-xl text-primary-100">
-                Train, deploy, and manage your machine learning models with ease
+                Analyze, optimize, and report on your AI models — all in one place
               </p>
             </div>
 
@@ -77,10 +77,10 @@ const AuthLayout = ({ children, title, subtitle }) => {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold mb-1">
-                    Easy Model Upload
+                    Model Execution &amp; Evaluation
                   </h3>
                   <p className="text-primary-100">
-                    Upload and manage your PyTorch models effortlessly
+                    Run inference on your datasets and get accuracy, F1 score, and confusion matrix breakdowns
                   </p>
                 </div>
               </div>
@@ -104,9 +104,9 @@ const AuthLayout = ({ children, title, subtitle }) => {
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold mb-1">Fast Training</h3>
+                  <h3 className="text-lg font-semibold mb-1">Pruning &amp; Optimization</h3>
                   <p className="text-primary-100">
-                    Accelerate your model training with optimized infrastructure
+                    Reduce model size and boost efficiency with configurable pruning strategies
                   </p>
                 </div>
               </div>
@@ -131,10 +131,10 @@ const AuthLayout = ({ children, title, subtitle }) => {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold mb-1">
-                    Real-time Analytics
+                    Automated PDF Reports
                   </h3>
                   <p className="text-primary-100">
-                    Monitor your model performance with detailed insights
+                    Generate comprehensive reports with per-class metrics, confusion matrices, and carbon footprint data
                   </p>
                 </div>
               </div>
