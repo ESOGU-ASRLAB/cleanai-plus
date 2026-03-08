@@ -34,3 +34,15 @@ class WorkspaceResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PublicWorkspaceResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    owner_name: str = "Unknown"
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

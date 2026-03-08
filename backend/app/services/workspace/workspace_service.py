@@ -67,6 +67,45 @@ class WorkspaceService:
         })
         return result.deleted_count > 0
 
+    async def search_public_workspaces(self, query: str, limit: int = 8) -> list:
+        """Full-text search over public workspaces, returning results with owner full_name."""
+        match_filter: dict = {"is_public": True}
+        q = query.strip()
+        if q:
+            match_filter["$or"] = [
+                {"name": {"$regex": q, "$options": "i"}},
+                {"description": {"$regex": q, "$options": "i"}},
+            ]
+
+        pipeline = [
+            {"$match": match_filter},
+            {"$sort": {"updated_at": -1}},
+            {"$limit": limit},
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "owner_id",
+                    "foreignField": "_id",
+                    "as": "_owner",
+                }
+            },
+            {
+                "$addFields": {
+                    "owner_name": {
+                        "$ifNull": [{"$arrayElemAt": ["$_owner.full_name", 0]}, "Unknown"]
+                    }
+                }
+            },
+            {"$project": {"_owner": 0}},
+        ]
+
+        results = []
+        async for doc in self.workspaces_collection.aggregate(pipeline):
+            doc["_id"] = str(doc["_id"])
+            doc["owner_id"] = str(doc["owner_id"])
+            results.append(doc)
+        return results
+
     async def get_workspace_stats(self, workspace_id: str) -> dict:
         """Get aggregate statistics for a workspace."""
         if not ObjectId.is_valid(workspace_id):

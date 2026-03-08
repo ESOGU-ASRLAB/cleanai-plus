@@ -91,12 +91,11 @@ async def list_workspace_models(
     workspace_service: WorkspaceService = Depends(get_workspace_service)
 ):
     """List all models in a workspace."""
-    # Verify workspace access
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     return await model_service.get_models_by_workspace(workspace_id)
@@ -118,8 +117,8 @@ async def get_model_definition(
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     code = await model_service.get_model_definition(model_id)
@@ -163,8 +162,8 @@ async def get_model_structure(
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     layers = await model_service.get_model_structure(model_id)
@@ -185,8 +184,8 @@ async def get_model(
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     model = await model_service.get_model_by_id(model_id)

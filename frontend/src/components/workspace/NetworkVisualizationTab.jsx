@@ -11,7 +11,7 @@ import {
   FiBox,
 } from "react-icons/fi";
 
-const NetworkVisualizationTab = ({ workspace, initialModel }) => {
+const NetworkVisualizationTab = ({ workspace, initialModel, isReadonly = false }) => {
   const { token } = useAuth();
   const { showAlert, showConfirm } = useAlert();
   const [models, setModels] = useState([]);

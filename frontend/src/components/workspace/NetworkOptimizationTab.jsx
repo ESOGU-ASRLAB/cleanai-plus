@@ -105,7 +105,7 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const NetworkOptimizationTab = ({ workspace }) => {
+const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
   const { token } = useAuth();
   const { showAlert, showConfirm } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
@@ -1274,22 +1274,24 @@ const NetworkOptimizationTab = ({ workspace }) => {
             Prune and compress your PyTorch models using torch-pruning
           </p>
         </div>
-        <Button
-          onClick={handleStartWizard}
-          disabled={optimizations.some(
-            (o) => o.status === "running" || o.status === "pending",
-          )}
-          title={
-            optimizations.some(
+        {!isReadonly && (
+          <Button
+            onClick={handleStartWizard}
+            disabled={optimizations.some(
               (o) => o.status === "running" || o.status === "pending",
-            )
-              ? "An optimization is already in progress"
-              : undefined
-          }
-          className="flex items-center"
-        >
-          <FiZap className="mr-2" /> Create Optimized Model
-        </Button>
+            )}
+            title={
+              optimizations.some(
+                (o) => o.status === "running" || o.status === "pending",
+              )
+                ? "An optimization is already in progress"
+                : undefined
+            }
+            className="flex items-center"
+          >
+            <FiZap className="mr-2" /> Create Optimized Model
+          </Button>
+        )}
       </div>
 
       {/* Empty state */}

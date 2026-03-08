@@ -90,7 +90,81 @@ const generatePythonCode = (steps) => {
   return `${imports}def get_transform():\n    return transforms.Compose([\n${transformList}\n    ])`;
 };
 
-const PreprocessingTab = ({ workspace }) => {
+const splitTopLevel = (str) => {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    else if (ch === ',' && depth === 0) {
+      parts.push(str.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(str.slice(start));
+  return parts;
+};
+
+const parseCodeToSteps = (code) => {
+  try {
+    const marker = 'transforms.Compose([';
+    const idx = code.indexOf(marker);
+    if (idx === -1) return null;
+    let depth = 0;
+    let contentStart = idx + marker.length;
+    let contentEnd = -1;
+    for (let i = contentStart - 1; i < code.length; i++) {
+      const ch = code[i];
+      if (ch === '[' || ch === '(') depth++;
+      else if (ch === ']' || ch === ')') {
+        depth--;
+        if (depth === 0) { contentEnd = i; break; }
+      }
+    }
+    if (contentEnd === -1) return null;
+    const calls = splitTopLevel(code.slice(contentStart, contentEnd));
+    const steps = [];
+    for (const call of calls) {
+      const trimmed = call.trim().replace(/\s+/g, ' ');
+      if (!trimmed) continue;
+      const match = trimmed.match(/^transforms\.(\w+)\s*\(([\s\S]*)\)$/);
+      if (!match) continue;
+      const type = match[1];
+      const paramsStr = match[2].trim();
+      const params = {};
+      if (paramsStr) {
+        const known = AVAILABLE_TRANSFORMS.find((t) => t.type === type);
+        const knownKeys = known ? Object.keys(known.params) : [];
+        let posIdx = 0;
+        for (const part of splitTopLevel(paramsStr)) {
+          const p = part.trim();
+          if (!p) continue;
+          const eqIdx = p.indexOf('=');
+          if (eqIdx > 0 && /^\w+$/.test(p.slice(0, eqIdx).trim())) {
+            params[p.slice(0, eqIdx).trim()] = p.slice(eqIdx + 1).trim();
+          } else {
+            params[knownKeys[posIdx] || `arg${posIdx}`] = p;
+            posIdx++;
+          }
+        }
+      }
+      const known = AVAILABLE_TRANSFORMS.find((t) => t.type === type);
+      steps.push({
+        ...(known || { type, description: '' }),
+        params: known ? { ...known.params, ...params } : params,
+        id: Date.now() + steps.length,
+      });
+    }
+    return steps;
+  } catch (e) {
+    console.error('parseCodeToSteps error:', e);
+    return null;
+  }
+};
+
+const PreprocessingTab = ({ workspace, isReadonly = false }) => {
   const { token } = useAuth();
   const { warning } = useToast();
   const { showConfirm } = useAlert();
@@ -323,10 +397,12 @@ const PreprocessingTab = ({ workspace }) => {
               Create and manage data transformation pipelines
             </p>
           </div>
-          <Button onClick={handleCreateNew} className="flex items-center">
-            <FiPlus className="mr-2" />
-            Create Preprocessing
-          </Button>
+          {!isReadonly && (
+            <Button onClick={handleCreateNew} className="flex items-center">
+              <FiPlus className="mr-2" />
+              Create Preprocessing
+            </Button>
+          )}
         </div>
 
         {loadingList ? (
@@ -368,13 +444,15 @@ const PreprocessingTab = ({ workspace }) => {
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => handleDelete(e, item.id)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                    title="Delete"
-                  >
-                    <FiTrash2 size={16} />
-                  </button>
+                  {!isReadonly && (
+                    <button
+                      onClick={(e) => handleDelete(e, item.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete"
+                    >
+                      <FiTrash2 size={16} />
+                    </button>
+                  )}
                 </div>
                 <div className="mt-3 text-xs text-gray-500">
                   Last updated: {new Date(item.updated_at).toLocaleDateString()}
@@ -391,9 +469,11 @@ const PreprocessingTab = ({ workspace }) => {
             <p className="text-gray-500 mb-6">
               Create a preprocessing pipeline to transform your datasets.
             </p>
-            <Button onClick={handleCreateNew} variant="primary">
-              Create Preprocessing
-            </Button>
+            {!isReadonly && (
+              <Button onClick={handleCreateNew} variant="primary">
+                Create Preprocessing
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -416,7 +496,8 @@ const PreprocessingTab = ({ workspace }) => {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={isReadonly ? undefined : (e) => setName(e.target.value)}
+              readOnly={isReadonly}
               placeholder="Preprocessing Name"
               className="bg-transparent border-none text-gray-900 font-medium focus:ring-0 p-0 text-lg placeholder-gray-400"
             />
@@ -429,7 +510,13 @@ const PreprocessingTab = ({ workspace }) => {
         <div className="flex items-center gap-4">
           <div className="flex bg-gray-200 rounded-lg p-1">
             <button
-              onClick={() => setMode("ui")}
+              onClick={() => {
+                if (mode === "code") {
+                  const parsed = parseCodeToSteps(code);
+                  if (parsed !== null) setSteps(parsed);
+                }
+                setMode("ui");
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-sm font-medium ${
                 mode === "ui"
                   ? "bg-white text-primary-600 shadow-sm"
@@ -456,15 +543,17 @@ const PreprocessingTab = ({ workspace }) => {
               Code
             </button>
           </div>
-          <Button
-            onClick={handleSave}
-            loading={saving}
-            variant="primary"
-            className="flex items-center"
-          >
-            <FiSave className="w-4 h-4 mr-2" />
-            Save
-          </Button>
+          {!isReadonly && (
+            <Button
+              onClick={handleSave}
+              loading={saving}
+              variant="primary"
+              className="flex items-center"
+            >
+              <FiSave className="w-4 h-4 mr-2" />
+              Save
+            </Button>
+          )}
         </div>
       </div>
 
@@ -474,7 +563,7 @@ const PreprocessingTab = ({ workspace }) => {
           <div className="h-full border border-gray-200 rounded-md overflow-hidden bg-white shadow-sm">
             <WindowedCodeEditor
               value={code}
-              onChange={setCode}
+              onChange={isReadonly ? undefined : setCode}
               language="python"
               fileName={
                 name
@@ -482,11 +571,13 @@ const PreprocessingTab = ({ workspace }) => {
                   : "preprocessing.py"
               }
               height="100%"
+              readOnly={isReadonly}
             />
           </div>
         ) : (
           <div className="h-full flex gap-4">
             {/* Library Panel */}
+            {!isReadonly && (
             <div className="w-1/3 bg-white rounded-lg p-4 border border-gray-200 flex flex-col shadow-sm">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Available Transforms
@@ -519,24 +610,25 @@ const PreprocessingTab = ({ workspace }) => {
                 ))}
               </div>
             </div>
+            )}
 
             {/* Pipeline Panel */}
             <div
               className="flex-1 bg-white rounded-lg p-4 border border-gray-200 flex flex-col shadow-sm"
-              onDragOver={(e) => handleDragOver(e)}
-              onDrop={(e) => handleDrop(e)}
+              onDragOver={!isReadonly ? (e) => handleDragOver(e) : undefined}
+              onDrop={!isReadonly ? (e) => handleDrop(e) : undefined}
             >
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Pipeline Steps ({steps.length})
               </h3>
               {steps.length === 0 ? (
                 <div
-                  className={`flex-1 flex flex-col items-center justify-center text-gray-400 border-2 border-dashed rounded-lg transition-colors ${dragOverIndex !== null ? "border-primary-400 bg-primary-50" : "border-gray-200 bg-gray-50"}`}
+                  className={`flex-1 flex flex-col items-center justify-center text-gray-400 border-2 border-dashed rounded-lg transition-colors ${!isReadonly && dragOverIndex !== null ? "border-primary-400 bg-primary-50" : "border-gray-200 bg-gray-50"}`}
                 >
                   <FiLayers
-                    className={`w-12 h-12 mb-2 ${dragOverIndex !== null ? "text-primary-400 opacity-100" : "opacity-50"}`}
+                    className={`w-12 h-12 mb-2 ${!isReadonly && dragOverIndex !== null ? "text-primary-400 opacity-100" : "opacity-50"}`}
                   />
-                  <p>Drag and drop transforms here</p>
+                  <p>{isReadonly ? "No transform steps defined" : "Drag and drop transforms here"}</p>
                 </div>
               ) : (
                 <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar p-1">
@@ -546,12 +638,12 @@ const PreprocessingTab = ({ workspace }) => {
                         <div className="h-1.5 bg-primary-400 rounded-full shadow-sm border border-primary-200 transition-all"></div>
                       )}
                       <div
-                        draggable
-                        onDragStart={(e) => handleStepDragStart(e, idx)}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleDragOver(e, idx)}
-                        onDrop={(e) => handleDrop(e, idx)}
-                        className="bg-white rounded-md border border-gray-200 p-4 shadow-sm cursor-move relative hover:border-primary-300 transition-colors"
+                        draggable={!isReadonly}
+                        onDragStart={!isReadonly ? (e) => handleStepDragStart(e, idx) : undefined}
+                        onDragEnd={!isReadonly ? handleDragEnd : undefined}
+                        onDragOver={!isReadonly ? (e) => handleDragOver(e, idx) : undefined}
+                        onDrop={!isReadonly ? (e) => handleDrop(e, idx) : undefined}
+                        className={`bg-white rounded-md border border-gray-200 p-4 shadow-sm relative hover:border-primary-300 transition-colors ${isReadonly ? "cursor-default" : "cursor-move"}`}
                       >
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-3">
@@ -563,6 +655,8 @@ const PreprocessingTab = ({ workspace }) => {
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
+                            {!isReadonly && (
+                            <>
                             <button
                               onClick={() => moveStep(idx, -1)}
                               disabled={idx === 0}
@@ -585,13 +679,17 @@ const PreprocessingTab = ({ workspace }) => {
                             >
                               <FiArrowDown className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => removeStep(idx)}
-                              className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-2 transition-colors"
-                              title="Remove step"
-                            >
-                              <FiTrash2 className="w-4 h-4" />
-                            </button>
+                            </>
+                            )}
+                            {!isReadonly && (
+                              <button
+                                onClick={() => removeStep(idx)}
+                                className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-2 transition-colors"
+                                title="Remove step"
+                              >
+                                <FiTrash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -605,10 +703,11 @@ const PreprocessingTab = ({ workspace }) => {
                               <input
                                 type="text"
                                 value={val}
-                                onChange={(e) =>
+                                onChange={isReadonly ? undefined : (e) =>
                                   updateStepParam(idx, key, e.target.value)
                                 }
-                                className="bg-gray-50 border border-gray-200 text-sm text-gray-700 rounded px-2 py-1.5 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all placeholder-gray-400"
+                                readOnly={isReadonly}
+                                className={`bg-gray-50 border border-gray-200 text-sm text-gray-700 rounded px-2 py-1.5 outline-none transition-all placeholder-gray-400 ${isReadonly ? "cursor-default" : "focus:ring-1 focus:ring-primary-500 focus:border-primary-500"}`}
                               />
                             </div>
                           ))}

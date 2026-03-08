@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../components/common";
 import Navbar from "../components/layout/Navbar";
+import workspaceService from "../services/workspaceService";
 
 const features = [
   {
@@ -103,6 +104,29 @@ const steps = [
 ];
 
 const LandingPage = () => {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const data = await workspaceService.searchPublic(query, 8);
+        setResults(data);
+        setSearched(true);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
+
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
@@ -222,6 +246,86 @@ const LandingPage = () => {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── Public Workspace Search ── */}
+      <section className="py-24 bg-gray-50">
+        <div className="container mx-auto px-4 sm:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+              Explore public workspaces
+            </h2>
+            <p className="text-gray-500 text-lg max-w-xl mx-auto">
+              Browse AI model evaluation projects shared by the community.
+            </p>
+          </div>
+
+          {/* Search input */}
+          <div className="max-w-xl mx-auto mb-10">
+            <div className="relative">
+              <svg
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-4.35-4.35M17 11A6 6 0 1 0 5 11a6 6 0 0 0 12 0z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name or description..."
+                className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-200 shadow-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition"
+              />
+              {searching && (
+                <svg
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+            </div>
+          </div>
+
+          {/* Results */}
+          {searched && results.length === 0 && !searching && (
+            <p className="text-center text-gray-400">No public workspaces found.</p>
+          )}
+
+          {results.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+              {results.map((ws) => (
+                <div
+                  key={ws.id}
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow duration-300 p-6 flex flex-col gap-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                      {ws.name.charAt(0).toUpperCase()}
+                    </div>
+                    <h3 className="text-sm font-semibold text-gray-900 truncate">{ws.name}</h3>
+                  </div>
+                  {ws.description && (
+                    <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">{ws.description}</p>
+                  )}
+                  <div className="mt-auto flex items-center justify-between text-xs text-gray-400">
+                    <span className="truncate">{ws.owner_name}</span>
+                    <span>{new Date(ws.updated_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

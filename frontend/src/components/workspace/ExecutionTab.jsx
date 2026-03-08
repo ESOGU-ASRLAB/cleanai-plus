@@ -29,7 +29,7 @@ const EXECUTION_STEPS = [
   { id: 5, title: "Review & Run" },
 ];
 
-const ExecutionTab = ({ workspace, initialExecutionId }) => {
+const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => {
   const { token } = useAuth();
   const { showAlert, showConfirm } = useAlert();
   const [view, setView] = useState("list"); // "list" | "create"
@@ -624,22 +624,24 @@ const ExecutionTab = ({ workspace, initialExecutionId }) => {
             Manage and monitor your model inference runs
           </p>
         </div>
-        <Button
-          onClick={handleStartWizard}
-          disabled={executions.some(
-            (e) => e.status === "running" || e.status === "pending",
-          )}
-          title={
-            executions.some(
+        {!isReadonly && (
+          <Button
+            onClick={handleStartWizard}
+            disabled={executions.some(
               (e) => e.status === "running" || e.status === "pending",
-            )
-              ? "An execution is already in progress"
-              : undefined
-          }
-          className="flex items-center"
-        >
-          <FiPlay className="mr-2" /> New Execution
-        </Button>
+            )}
+            title={
+              executions.some(
+                (e) => e.status === "running" || e.status === "pending",
+              )
+                ? "An execution is already in progress"
+                : undefined
+            }
+            className="flex items-center"
+          >
+            <FiPlay className="mr-2" /> New Execution
+          </Button>
+        )}
       </div>
 
       {executions.length === 0 ? (

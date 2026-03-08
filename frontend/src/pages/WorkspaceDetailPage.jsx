@@ -39,7 +39,7 @@ import {
 
 const WorkspaceDetailPage = () => {
   const { id } = useParams();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,6 +47,11 @@ const WorkspaceDetailPage = () => {
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // true when a logged-in user views someone else's public workspace
+  // user id may be under `_id` (alias) or `id` depending on serialization
+  const userId = user ? (user._id ?? user.id) : null;
+  const isReadonly = workspace && userId ? workspace.owner_id !== String(userId) : false;
 
   const getInitialTab = () => {
     const params = new URLSearchParams(location.search);
@@ -623,6 +628,7 @@ const WorkspaceDetailPage = () => {
                   ? "border-primary-500 text-primary-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
               }
+              ${isReadonly ? "hidden" : ""}
             `}
           >
             <FiSettings className="mr-2" /> Settings
@@ -726,11 +732,13 @@ const WorkspaceDetailPage = () => {
                   Manage and explore your datasets
                 </p>
               </div>
-              <Link to={`/workspaces/${id}/datasets/new`}>
-                <Button className="flex items-center">
-                  <FiPlus className="mr-2" /> Add Dataset
-                </Button>
-              </Link>
+              {!isReadonly && (
+                <Link to={`/workspaces/${id}/datasets/new`}>
+                  <Button className="flex items-center">
+                    <FiPlus className="mr-2" /> Add Dataset
+                  </Button>
+                </Link>
+              )}
             </div>
 
             {datasetsLoading ? (
@@ -865,7 +873,7 @@ const WorkspaceDetailPage = () => {
 
         {activeTab === "preprocessing" && (
           <div className="animate-fade-in">
-            <PreprocessingTab workspace={workspace} />
+            <PreprocessingTab workspace={workspace} isReadonly={isReadonly} />
           </div>
         )}
 
@@ -874,13 +882,14 @@ const WorkspaceDetailPage = () => {
             <ExecutionTab
               workspace={workspace}
               initialExecutionId={initialExecutionId}
+              isReadonly={isReadonly}
             />
           </div>
         )}
 
         {activeTab === "optimization" && (
           <div className="animate-fade-in">
-            <NetworkOptimizationTab workspace={workspace} />
+            <NetworkOptimizationTab workspace={workspace} isReadonly={isReadonly} />
           </div>
         )}
 
@@ -889,6 +898,7 @@ const WorkspaceDetailPage = () => {
             <NetworkVisualizationTab
               workspace={workspace}
               initialModel={visualizationModel}
+              isReadonly={isReadonly}
             />
           </div>
         )}
@@ -912,11 +922,13 @@ const WorkspaceDetailPage = () => {
                   Create, fine-tune, and manage your models
                 </p>
               </div>
-              <Link to={`/workspaces/${id}/models/new`}>
-                <Button className="flex items-center">
-                  <FiPlus className="mr-2" /> Create Model
-                </Button>
-              </Link>
+              {!isReadonly && (
+                <Link to={`/workspaces/${id}/models/new`}>
+                  <Button className="flex items-center">
+                    <FiPlus className="mr-2" /> Create Model
+                  </Button>
+                </Link>
+              )}
             </div>
 
             {modelsLoading ? (
@@ -962,7 +974,9 @@ const WorkspaceDetailPage = () => {
                               setDeleteModelId(model._id);
                             }}
                             title="Delete model"
-                            className="ml-2 flex-shrink-0 text-gray-300 hover:text-red-500 focus:outline-none transition-colors"
+                            className={`ml-2 flex-shrink-0 text-gray-300 hover:text-red-500 focus:outline-none transition-colors ${
+                              isReadonly ? "invisible" : ""
+                            }`}
                           >
                             <FiTrash2 size={15} />
                           </button>

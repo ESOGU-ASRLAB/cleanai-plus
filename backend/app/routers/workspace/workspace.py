@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends, status
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.mongodb import get_database
@@ -7,7 +7,7 @@ from app.dependencies import get_current_user
 from app.models.auth import UserInDB
 from app.models.workspace import WorkspaceCreate
 from app.models.activity import ActivityLog
-from app.schemas.workspace import WorkspaceCreateRequest, WorkspaceUpdateRequest, WorkspaceResponse
+from app.schemas.workspace import WorkspaceCreateRequest, WorkspaceUpdateRequest, WorkspaceResponse, PublicWorkspaceResponse
 from app.services.workspace import WorkspaceService
 from app.services.activity_service import ActivityService
 
@@ -19,6 +19,27 @@ def get_workspace_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> W
 
 def get_activity_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> ActivityService:
     return ActivityService(db)
+
+
+@router.get("/public/search", response_model=List[PublicWorkspaceResponse])
+async def search_public_workspaces(
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=8, ge=1, le=20),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """Search public workspaces. No authentication required."""
+    results = await workspace_service.search_public_workspaces(q, limit)
+    return [
+        PublicWorkspaceResponse(
+            id=doc["_id"],
+            name=doc["name"],
+            description=doc.get("description"),
+            owner_name=doc.get("owner_name", "Unknown"),
+            created_at=doc["created_at"],
+            updated_at=doc["updated_at"],
+        )
+        for doc in results
+    ]
 
 
 @router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
@@ -96,7 +117,7 @@ async def get_workspace(
         )
         
     # Check ownership (start simple)
-    if str(workspace.owner_id) != str(current_user.id):
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this workspace"
@@ -192,8 +213,8 @@ async def list_workspace_activities(
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     return await activity_service.get_workspace_activities(workspace_id, limit=limit)
@@ -208,8 +229,8 @@ async def get_workspace_stats(
     workspace = await workspace_service.get_workspace_by_id(workspace_id)
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    if str(workspace.owner_id) != str(current_user.id):
+
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     return await workspace_service.get_workspace_stats(workspace_id)
