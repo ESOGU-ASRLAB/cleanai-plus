@@ -545,12 +545,20 @@ class ExecutionService:
 
         # Confusion matrix
         if len(all_targets) > 0 and len(all_preds) > 0:
-            present_labels = sorted(set(all_targets) | set(all_preds))
+            # Use all model classes when count is manageable (≤100) so the matrix
+            # always reflects the true NxN shape (e.g. 10×10 for CIFAR-10 even if
+            # some classes were not sampled). For larger class sets fall back to
+            # only the classes that actually appeared to keep storage reasonable.
+            if len(model_classes) <= 100:
+                present_labels = list(range(len(model_classes)))
+                cm_class_names = list(model_classes)
+            else:
+                present_labels = sorted(set(all_targets) | set(all_preds))
+                cm_class_names = [
+                    model_classes[i] if i < len(model_classes) else str(i)
+                    for i in present_labels
+                ]
             cm = sk_confusion_matrix(all_targets, all_preds, labels=present_labels)
-            cm_class_names = [
-                model_classes[i] if i < len(model_classes) else str(i)
-                for i in present_labels
-            ]
             metrics["confusion_matrix"] = cm.tolist()
             metrics["confusion_matrix_labels"] = cm_class_names
 
@@ -565,14 +573,13 @@ class ExecutionService:
             if per_class_acc:
                 sorted_acc = sorted(per_class_acc, key=lambda x: x["accuracy"], reverse=True)
                 n_cls = len(sorted_acc)
-                top_n = min(3, n_cls)
-                top3 = sorted_acc[:top_n]
-                top3_labels = {x["label"] for x in top3}
+                top7 = sorted_acc[:min(7, n_cls)]
+                top7_labels = {x["label"] for x in top7}
                 bottom_candidates = list(reversed(sorted_acc[-min(3, n_cls):]))
-                bottom3 = [x for x in bottom_candidates if x["label"] not in top3_labels]
-                if not bottom3:  # fewer than 6 classes — no non-overlapping bottom
+                bottom3 = [x for x in bottom_candidates if x["label"] not in top7_labels]
+                if not bottom3:  # fewer than 10 classes — no non-overlapping bottom
                     bottom3 = bottom_candidates
-                metrics["class_accuracy_top3"]    = top3
+                metrics["class_accuracy_top3"]    = top7
                 metrics["class_accuracy_bottom3"] = bottom3
 
         return {"metrics": metrics, "accuracy": accuracy, "f1": float(f1)}

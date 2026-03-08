@@ -307,11 +307,11 @@ class ReportService:
             _note_text = None
 
             if n > 20:
-                # Sub-matrix: top-3 best + bottom-3 worst classes
-                _top3_lbl    = [x["label"] for x in execution.metrics.get("class_accuracy_top3",    [])]
+                # Sub-matrix: top-7 best + bottom-3 worst classes
+                _top7_lbl    = [x["label"] for x in execution.metrics.get("class_accuracy_top3",    [])]
                 _bottom3_lbl = [x["label"] for x in execution.metrics.get("class_accuracy_bottom3", [])]
                 _seen, _subset_labels = set(), []
-                for _lbl in _top3_lbl + _bottom3_lbl:
+                for _lbl in _top7_lbl + _bottom3_lbl:
                     if _lbl not in _seen:
                         _seen.add(_lbl)
                         _subset_labels.append(_lbl)
