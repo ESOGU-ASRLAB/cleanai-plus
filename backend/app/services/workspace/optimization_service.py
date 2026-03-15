@@ -101,11 +101,39 @@ class OptimizationService:
         )
         model.eval()
 
-        prunable_types = (nn.Conv2d, nn.ConvTranspose2d, nn.Linear, nn.BatchNorm2d, nn.LayerNorm)
+        # Dynamically detect all prunable layers using torch-pruning's capabilities
+        # Instead of hardcoded tuple, check if layer has prunable parameters
+        try:
+            import torch_pruning as tp
+            
+            # Common prunable layer types in torch-pruning
+            prunable_types = (
+                # Convolutional layers
+                nn.Conv1d, nn.Conv2d, nn.Conv3d,
+                nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d,
+                # Linear layers
+                nn.Linear,
+                # Normalization layers
+                nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+                nn.LayerNorm, nn.GroupNorm,
+                nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+                # Embedding layers
+                nn.Embedding,
+            )
+            
+            # Also check for MultiheadAttention if available
+            if hasattr(nn, 'MultiheadAttention'):
+                prunable_types = prunable_types + (nn.MultiheadAttention,)
+                
+        except ImportError:
+            # Fallback to basic types if torch-pruning not installed
+            prunable_types = (nn.Conv2d, nn.ConvTranspose2d, nn.Linear, nn.BatchNorm2d, nn.LayerNorm)
+        
         layers = []
         for name, module in model.named_modules():
             if not name:
                 continue
+            # Check if module is prunable (has weight parameter and is supported type)
             if isinstance(module, prunable_types):
                 type_name = type(module).__name__
                 # Build a shape hint
@@ -190,12 +218,12 @@ class OptimizationService:
             #   outer: A1(init) A2(examples) A5(load) A6(post-pruning) A7(save)
             #   inner: B1(baseline) B2(criterion) B5(pruner) B6…(steps) B7(stats)
             # Variable units:
-            #   _collect_units : real file-reads   (calibration_num_samples, taylor only)
-            #   A4             : 1 extra advance after collection  (taylor only)
-            #   _cal_units     : backward/forward passes  (N for taylor, 1 for activation)
+            #   _collect_units : real file-reads (calibration_num_samples, taylor/neuron_coverage/wanda)
+            #   A4             : 1 extra advance after collection (taylor/neuron_coverage/wanda)
+            #   _cal_units     : backward/forward passes (N for taylor, 1 for activation, 0 for neuron_coverage/wanda)
             #   _bench_units   : benchmark calibration sample collection (all criteria)
             # ------------------------------------------------------------------ #
-            _collect_units = calibration_num_samples if importance_type == "taylor" else 0
+            _collect_units = calibration_num_samples if importance_type in ("taylor", "neuron_coverage", "wanda") else 0
             _cal_units = (
                 calibration_num_samples if importance_type == "taylor"
                 else (1 if importance_type == "activation" else 0)
@@ -204,7 +232,7 @@ class OptimizationService:
             _total_units = (
                 10
                 + _collect_units
-                + (1 if importance_type == "taylor" else 0)   # A4
+                + (1 if importance_type in ("taylor", "neuron_coverage", "wanda") else 0)   # A4
                 + _cal_units
                 + iterative_steps
                 + _bench_units                                # benchmark collection
@@ -236,9 +264,9 @@ class OptimizationService:
                 config,
             )
 
-            # --- A2 + collect: Calibration sample collection (Taylor only) ---
+            # --- A2 + collect: Calibration sample collection (Taylor, Neuron Coverage, WANDA) ---
             calibration_inputs = None
-            if importance_type == "taylor":
+            if importance_type in ("taylor", "neuron_coverage", "wanda"):
                 _advance(1, f"Collecting {calibration_num_samples} calibration sample(s)…")
                 calibration_inputs = await loop.run_in_executor(
                     None,
@@ -850,6 +878,8 @@ class OptimizationService:
         # ------------------------------------------------------------------ #
         gradient_based = importance_type == "taylor"
         activation_based = importance_type == "activation"
+        coverage_based = importance_type == "neuron_coverage"
+        wanda_based = importance_type == "wanda"
 
         if importance_type == "magnitude_l1":
             imp = tp.importance.MagnitudeImportance(p=1)
@@ -871,13 +901,29 @@ class OptimizationService:
             imp = tp.importance.FPGMImportance()
         elif importance_type == "taylor":
             imp = tp.importance.TaylorImportance()
+        elif importance_type == "neuron_coverage":
+            # Data-driven importance based on neuron activation coverage
+            from .neuron_coverage_importance import NeuronCoverageImportance
+            coverage_metric = config.get("coverage_metric", "normalized_mean")
+            imp = NeuronCoverageImportance(
+                calibration_inputs=calibration_inputs if calibration_inputs else [example_inputs],
+                coverage_metric=coverage_metric
+            )
+        elif importance_type == "wanda":
+            # WANDA: Weight AND Activation importance (multiply weight × activation)
+            from .wanda_importance import WandaImportance
+            weight_norm = config.get("wanda_weight_norm", "l2")
+            imp = WandaImportance(
+                calibration_inputs=calibration_inputs if calibration_inputs else [example_inputs],
+                weight_norm=weight_norm
+            )
         else:
             print(f"Warning: Unknown importance_type '{importance_type}', falling back to magnitude_l1.")
             imp = tp.importance.MagnitudeImportance(p=1)
             gradient_based = False
 
         # B2: criterion done — announce next stage
-        if gradient_based or activation_based:
+        if gradient_based or activation_based or coverage_based or wanda_based:
             _report(1, "Running calibration pass…")
         else:
             _report(1, f"Building pruner for {iterative_steps} pruning step(s)…")

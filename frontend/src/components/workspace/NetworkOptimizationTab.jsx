@@ -23,6 +23,8 @@ import {
   FiChevronRight,
   FiStopCircle,
   FiFileText,
+  FiTarget,
+  FiEyeOff,
 } from "react-icons/fi";
 
 const OPTIMIZATION_STEPS = [
@@ -68,6 +70,16 @@ const IMPORTANCE_OPTIONS = [
     value: "taylor",
     label: "Taylor (gradient pass)",
     description: "Uses first-order Taylor expansion of loss. Performs a calibration backward pass automatically.",
+  },
+  {
+    value: "neuron_coverage",
+    label: "Neuron Coverage (data-driven)",
+    description: "Data-driven pruning based on neuron activation coverage on test data. Identifies and removes underutilized 'dead' neurons. Requires calibration pass.",
+  },
+  {
+    value: "wanda",
+    label: "WANDA (Weight AND Activation)",
+    description: "Combines weight magnitude with activation magnitude (Weight × Activation). Training-free, more balanced than magnitude-only or activation-only methods. Requires calibration pass.",
   },
   {
     value: "fpgm",
@@ -132,6 +144,8 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
     bn_scale_reg: 0.00001,
     bn_scale_group_lasso: false,
     calibration_num_samples: 16,
+    coverage_metric: "normalized_mean",
+    wanda_weight_norm: "l2",
     ignore_head: true,
     ignored_layer_names: [],
   });
@@ -293,6 +307,8 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
       bn_scale_reg: 0.00001,
       bn_scale_group_lasso: false,
       calibration_num_samples: 16,
+      coverage_metric: "normalized_mean",
+      wanda_weight_norm: "l2",
       ignore_head: true,
       ignored_layer_names: [],
     });
@@ -631,345 +647,453 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
             </p>
           </div>
 
-          {/* Importance Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Importance Criterion
-            </label>
-            <select
-              value={config.importance_type}
-              className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-              onChange={(e) => {
-                const newType = e.target.value;
-                const currentPostfix = config.output_name_postfix;
-                // Auto-update postfix only if it still matches the previous auto-generated pattern
-                const prevAuto = `_${config.importance_type}_pruned`;
-                const newPostfix =
-                  currentPostfix === prevAuto ? `_${newType}_pruned` : currentPostfix;
-                setConfig({ ...config, importance_type: newType, output_name_postfix: newPostfix });
-              }}
-            >
-              {IMPORTANCE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {/* Show description for selected criterion */}
-            {(() => {
-              const selected = IMPORTANCE_OPTIONS.find(
-                (o) => o.value === config.importance_type
-              );
-              return selected ? (
-                <p className="mt-1 text-xs text-gray-500">{selected.description}</p>
-              ) : null;
-            })()}
-          </div>
-
-          {/* Iterative Steps */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Iterative Steps
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="10"
-              value={config.iterative_steps}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  iterative_steps: Math.max(1, parseInt(e.target.value) || 1),
-                })
-              }
-              className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Number of pruning iterations (1 = one-shot).
-            </p>
-          </div>
-
-          {/* Device */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Compute Device
-            </label>
-            <select
-              value={config.device}
-              onChange={(e) =>
-                setConfig({ ...config, device: e.target.value })
-              }
-              className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-            >
-              <option value="cpu">CPU</option>
-              <option value="cuda">CUDA (GPU) ★</option>
-              <option value="mps">MPS (Mac)</option>
-            </select>
-          </div>
-
-          {/* Max Pruning Ratio */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Max Pruning Ratio per Layer:{" "}
-              <span className="text-primary-600 font-bold">
-                {Math.round(config.max_pruning_ratio * 100)}%
-              </span>
-            </label>
-            <input
-              type="range"
-              min="0.1"
-              max="1.0"
-              step="0.05"
-              value={config.max_pruning_ratio}
-              onChange={(e) =>
-                setConfig({ ...config, max_pruning_ratio: parseFloat(e.target.value) })
-              }
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>10%</span>
-              <span>100% (no cap)</span>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">
-              Upper bound on how much any single layer can be pruned.
-            </p>
-          </div>
-
-          {/* Round To */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Round Channels To
-            </label>
-            <select
-              value={config.round_to}
-              onChange={(e) => setConfig({ ...config, round_to: e.target.value })}
-              className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-            >
-              <option value="">None (exact)</option>
-              <option value="8">8 (tensor core friendly)</option>
-              <option value="16">16 (tensor core optimal)</option>
-              <option value="32">32</option>
-            </select>
-            <p className="mt-1 text-xs text-gray-500">
-              Rounds pruned channel count to the nearest multiple. Recommended: 8 or 16 for NVIDIA GPUs.
-            </p>
-          </div>
-
-          {/* Global Pruning */}
-          <div className="flex items-start justify-between gap-4 py-1">
+          {/* Importance Type + Criterion-Specific Parameters (side-by-side) */}
+          <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Left: Importance Criterion */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Global Pruning
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Importance Criterion
               </label>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Distribute the pruning budget globally across all layers instead of applying the same ratio per layer.
-              </p>
+              <select
+                value={config.importance_type}
+                className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  const currentPostfix = config.output_name_postfix;
+                  // Auto-update postfix only if it still matches the previous auto-generated pattern
+                  const prevAuto = `_${config.importance_type}_pruned`;
+                  const newPostfix =
+                    currentPostfix === prevAuto ? `_${newType}_pruned` : currentPostfix;
+                  setConfig({ ...config, importance_type: newType, output_name_postfix: newPostfix });
+                }}
+              >
+                {IMPORTANCE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              {/* Show description for selected criterion */}
+              {(() => {
+                const selected = IMPORTANCE_OPTIONS.find(
+                  (o) => o.value === config.importance_type
+                );
+                return selected ? (
+                  <p className="mt-1 text-xs text-gray-500">{selected.description}</p>
+                ) : null;
+              })()}
             </div>
-            <button
-              type="button"
-              onClick={() => setConfig({ ...config, global_pruning: !config.global_pruning })}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                config.global_pruning ? "bg-primary-600" : "bg-gray-200"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  config.global_pruning ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
+
+            {/* Right: Criterion-Specific Configuration */}
+            <div className="border border-gray-200 rounded-lg p-4">
+              <div className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-2">
+                <FiSliders className="w-3.5 h-3.5" />
+                <span>Criterion Configuration</span>
+              </div>
+              
+              {/* BN Scale params */}
+              {config.importance_type === "bn_scale" && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      BN Regularization
+                    </label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      min="0"
+                      value={config.bn_scale_reg}
+                      onChange={(e) =>
+                        setConfig({ ...config, bn_scale_reg: parseFloat(e.target.value) || 1e-5 })
+                      }
+                      className="block w-full rounded-md border border-gray-300 pl-2 py-1.5 text-sm font-mono focus:border-primary-500 focus:ring-primary-500"
+                    />
+                    <p className="mt-0.5 text-xs text-gray-500">L1 reg coefficient for BatchNorm γ</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Group Lasso</label>
+                      <p className="text-xs text-gray-500">Group Lasso vs L1</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfig({ ...config, bn_scale_group_lasso: !config.bn_scale_group_lasso })
+                      }
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                        config.bn_scale_group_lasso ? "bg-primary-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                        config.bn_scale_group_lasso ? "translate-x-4" : "translate-x-0"
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Neuron Coverage params */}
+              {config.importance_type === "neuron_coverage" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Coverage Metric
+                  </label>
+                  <select
+                    value={config.coverage_metric}
+                    onChange={(e) =>
+                      setConfig({ ...config, coverage_metric: e.target.value })
+                    }
+                    className="block w-full rounded-md border border-gray-300 pl-2 pr-8 py-1.5 text-sm focus:border-primary-500 focus:ring-primary-500"
+                  >
+                    <option value="normalized_mean">Normalized Mean ⭐</option>
+                    <option value="frequency">Activation Frequency</option>
+                    <option value="mean_absolute">Mean Absolute</option>
+                    <option value="combined">Combined (60/40)</option>
+                  </select>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    How to measure neuron usage on calibration data
+                  </p>
+                </div>
+              )}
+
+              {/* WANDA params */}
+              {config.importance_type === "wanda" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Weight Norm
+                  </label>
+                  <select
+                    value={config.wanda_weight_norm}
+                    onChange={(e) =>
+                      setConfig({ ...config, wanda_weight_norm: e.target.value })
+                    }
+                    className="block w-full rounded-md border border-gray-300 pl-2 pr-8 py-1.5 text-sm focus:border-primary-500 focus:ring-primary-500"
+                  >
+                    <option value="l1">L1 Norm</option>
+                    <option value="l2">L2 Norm ⭐</option>
+                  </select>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Weight magnitude metric for WANDA formula
+                  </p>
+                  <div className="mt-2 p-2 rounded text-xs text-gray-600 border border-gray-200">
+                    <strong>Formula:</strong> Importance = |Weight| × |Activation|
+                  </div>
+                </div>
+              )}
+
+              {/* Taylor params info */}
+              {config.importance_type === "taylor" && (
+                <div className="text-xs text-gray-600 italic">
+                  <FiCheckCircle className="w-4 h-4 inline text-green-600 mr-1" />
+                  Gradient-based importance (automatic calibration)
+                </div>
+              )}
+
+              {/* Activation params info */}
+              {config.importance_type === "activation" && (
+                <div className="text-xs text-gray-600 italic">
+                  <FiCheckCircle className="w-4 h-4 inline text-green-600 mr-1" />
+                  Activation-based importance (automatic forward pass)
+                </div>
+              )}
+
+              {/* No params needed */}
+              {!["bn_scale", "neuron_coverage", "wanda", "taylor", "activation"].includes(config.importance_type) && (
+                <div className="text-xs text-gray-400 italic flex items-center gap-2">
+                  <FiCheckCircle className="w-4 h-4" />
+                  <span>No additional configuration required</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Isomorphic + Calibration Samples (side by side) */}
-          <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-            {/* Isomorphic */}
-            <div className="flex items-start justify-between gap-4 py-1">
+          {/* Core Configuration Section */}
+          <div className="col-span-1 md:col-span-2">
+            <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2">
+              <FiSettings className="w-4 h-4 text-gray-500" />
+              <span>Core Configuration</span>
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Iterative Steps */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Iterative Steps
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={config.iterative_steps}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      iterative_steps: Math.max(1, parseInt(e.target.value) || 1),
+                    })
+                  }
+                  className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Number of pruning iterations (1 = one-shot).
+                </p>
+              </div>
+
+              {/* Device */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Compute Device
+                </label>
+                <select
+                  value={config.device}
+                  onChange={(e) =>
+                    setConfig({ ...config, device: e.target.value })
+                  }
+                  className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                >
+                  <option value="cpu">CPU</option>
+                  <option value="cuda">CUDA (GPU) ★</option>
+                  <option value="mps">MPS (Mac)</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Hardware accelerator for pruning operations.
+                </p>
+              </div>
+
+              {/* Max Pruning Ratio */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Max Pruning Ratio per Layer:{" "}
+                  <span className="text-primary-600 font-bold">
+                    {Math.round(config.max_pruning_ratio * 100)}%
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={config.max_pruning_ratio}
+                  onChange={(e) =>
+                    setConfig({ ...config, max_pruning_ratio: parseFloat(e.target.value) })
+                  }
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>10%</span>
+                  <span>100% (no cap)</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Upper bound on how much any single layer can be pruned.
+                </p>
+              </div>
+
+              {/* Round To */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Round Channels To
+                </label>
+                <select
+                  value={config.round_to}
+                  onChange={(e) => setConfig({ ...config, round_to: e.target.value })}
+                  className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                >
+                  <option value="">None (exact)</option>
+                  <option value="8">8 (tensor core friendly)</option>
+                  <option value="16">16 (tensor core optimal)</option>
+                  <option value="32">32</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Rounds pruned channel count to nearest multiple (recommended: 8 or 16).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Advanced Options Section */}
+          <div className="col-span-1 md:col-span-2">
+            <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2">
+              <FiZap className="w-4 h-4 text-gray-500" />
+              <span>Advanced Options</span>
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Global Pruning */}
+              <div className="flex items-start justify-between gap-4 py-1">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Global Pruning
+                  </label>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Distribute pruning budget globally across all layers.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, global_pruning: !config.global_pruning })}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    config.global_pruning ? "bg-primary-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      config.global_pruning ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Isomorphic */}
+              <div className="flex items-start justify-between gap-4 py-1">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Isomorphic
+                  </label>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Apply uniform pruning ratio to every layer.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfig({ ...config, isomorphic: !config.isomorphic })}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    config.isomorphic ? "bg-primary-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      config.isomorphic ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Calibration & Output Section */}
+          <div className="col-span-1 md:col-span-2">
+            <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2">
+              <FiTarget className="w-4 h-4 text-gray-500" />
+              <span>Calibration & Output</span>
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Calibration Samples */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Calibration Samples
+                </label>
+                <div className="flex rounded-md shadow-sm">
+                  <input
+                    type="number"
+                    min="1"
+                    max="256"
+                    value={config.calibration_num_samples}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        calibration_num_samples: Math.max(1, parseInt(e.target.value) || 1),
+                      })
+                    }
+                    className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
+                  />
+                  <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                    / {selectedDataset?.file_count ?? "—"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Dataset samples for benchmarking and importance scoring.
+                </p>
+              </div>
+
+              {/* Output Name Postfix */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Output Name Postfix
+                </label>
+                <input
+                  type="text"
+                  value={config.output_name_postfix}
+                  onChange={(e) =>
+                    setConfig({ ...config, output_name_postfix: e.target.value })
+                  }
+                  placeholder={`_${config.importance_type}_pruned`}
+                  className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  <code className="bg-gray-100 px-1 rounded font-mono text-xs">
+                    {selectedModel?.name}{config.output_name_postfix}
+                  </code>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Layer Exclusions Section */}
+          <div className="col-span-1 md:col-span-2">
+            <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2">
+              <FiEyeOff className="w-4 h-4 text-gray-500" />
+              <span>Layer Exclusions</span>
+            </h4>
+
+            {/* Ignore Head */}
+            <div className="flex items-start justify-between gap-4 py-1 mb-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">
-                  Isomorphic
+                  Ignore Classifier Head
                 </label>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  Apply the same pruning ratio uniformly to every layer (useful for symmetric architectures).
+                  Automatically exclude the last Linear layer (output head) from pruning.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setConfig({ ...config, isomorphic: !config.isomorphic })}
+                onClick={() => {
+                  const newVal = !config.ignore_head;
+                  const headLayers = modelLayers.filter((l) => l.type === "Linear");
+                  const headName = headLayers[headLayers.length - 1]?.name;
+                  let newIgnored = config.ignored_layer_names;
+                  if (headName) {
+                    newIgnored = newVal
+                      ? [...new Set([...config.ignored_layer_names, headName])]
+                      : config.ignored_layer_names.filter((n) => n !== headName);
+                  }
+                  setConfig({ ...config, ignore_head: newVal, ignored_layer_names: newIgnored });
+                }}
                 className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  config.isomorphic ? "bg-primary-600" : "bg-gray-200"
+                  config.ignore_head ? "bg-primary-600" : "bg-gray-200"
                 }`}
               >
                 <span
                   className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    config.isomorphic ? "translate-x-5" : "translate-x-0"
+                    config.ignore_head ? "translate-x-5" : "translate-x-0"
                   }`}
                 />
               </button>
             </div>
 
-            {/* Calibration Samples (benchmark + Taylor importance) */}
+            {/* Ignored Layers multi-select — collapsible */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Calibration Samples
-              </label>
-              <div className="flex rounded-md shadow-sm">
-                <input
-                  type="number"
-                  min="1"
-                  max="256"
-                  value={config.calibration_num_samples}
-                  onChange={(e) =>
-                    setConfig({
-                      ...config,
-                      calibration_num_samples: Math.max(1, parseInt(e.target.value) || 1),
-                    })
-                  }
-                  className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border"
-                />
-                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
-                  / {selectedDataset?.file_count ?? "—"} samples
+              <button
+                type="button"
+                onClick={() => setIgnoredLayersOpen((o) => !o)}
+                className="w-full flex items-center justify-between text-sm font-medium text-gray-700 py-2 border-b border-gray-200 hover:text-primary-600 transition-colors"
+              >
+                <span>
+                  Additional Ignored Layers
+                  {config.ignored_layer_names.length > 0 && (
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
+                      {config.ignored_layer_names.length} selected
+                    </span>
+                  )}
+                  {layersLoading && (
+                    <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>
+                  )}
                 </span>
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Real dataset images used for inference benchmarking (latency &amp; throughput) and, when Taylor is selected, for gradient-based importance scoring.
-              </p>
-            </div>
-          </div>
-
-          {/* BNScale-specific parameters */}
-          {config.importance_type === "bn_scale" && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  BN Regularization (reg)
-                </label>
-                <input
-                  type="number"
-                  step="0.000001"
-                  min="0"
-                  value={config.bn_scale_reg}
-                  onChange={(e) =>
-                    setConfig({ ...config, bn_scale_reg: parseFloat(e.target.value) || 1e-5 })
-                  }
-                  className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm font-mono"
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  L1 regularization coefficient applied to BatchNorm γ (gamma) during pruning.
-                </p>
-              </div>
-              <div className="flex items-start justify-between gap-4 py-1">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Group Lasso
-                  </label>
-                  <p className="mt-0.5 text-xs text-gray-500">
-                    Use Group Lasso regularization instead of L1 for BatchNorm scale pruning.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setConfig({ ...config, bn_scale_group_lasso: !config.bn_scale_group_lasso })
-                  }
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    config.bn_scale_group_lasso ? "bg-primary-600" : "bg-gray-200"
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      config.bn_scale_group_lasso ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* Output Name Postfix */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Output Name Postfix
-            </label>
-            <input
-              type="text"
-              value={config.output_name_postfix}
-              onChange={(e) =>
-                setConfig({ ...config, output_name_postfix: e.target.value })
-              }
-              placeholder={`_${config.importance_type}_pruned`}
-              className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Saved model:{" "}
-              <code className="bg-gray-100 px-1 rounded font-mono">
-                {selectedModel?.name}
-                {config.output_name_postfix}
-              </code>
-            </p>
-          </div>
-
-          {/* Ignore Head */}
-          <div className="flex items-start justify-between gap-4 py-1">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Ignore Classifier Head
-              </label>
-              <p className="mt-0.5 text-xs text-gray-500">
-                Automatically exclude the last Linear layer (output head) from pruning.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                const newVal = !config.ignore_head;
-                const headLayers = modelLayers.filter((l) => l.type === "Linear");
-                const headName = headLayers[headLayers.length - 1]?.name;
-                let newIgnored = config.ignored_layer_names;
-                if (headName) {
-                  newIgnored = newVal
-                    ? [...new Set([...config.ignored_layer_names, headName])]
-                    : config.ignored_layer_names.filter((n) => n !== headName);
-                }
-                setConfig({ ...config, ignore_head: newVal, ignored_layer_names: newIgnored });
-              }}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                config.ignore_head ? "bg-primary-600" : "bg-gray-200"
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  config.ignore_head ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Ignored Layers multi-select — collapsible */}
-          <div className="col-span-1 md:col-span-2">
-            <button
-              type="button"
-              onClick={() => setIgnoredLayersOpen((o) => !o)}
-              className="w-full flex items-center justify-between text-sm font-medium text-gray-700 py-2 border-b border-gray-200 hover:text-primary-600 transition-colors"
-            >
-              <span>
-                Additional Ignored Layers
-                {config.ignored_layer_names.length > 0 && (
-                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
-                    {config.ignored_layer_names.length} selected
-                  </span>
+                {ignoredLayersOpen ? (
+                  <FiChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <FiChevronDown className="w-4 h-4 text-gray-400" />
                 )}
-                {layersLoading && (
-                  <span className="ml-2 text-xs text-gray-400 font-normal">Loading…</span>
-                )}
-              </span>
-              {ignoredLayersOpen ? (
-                <FiChevronUp className="w-4 h-4 text-gray-400" />
-              ) : (
-                <FiChevronDown className="w-4 h-4 text-gray-400" />
-              )}
-            </button>
+              </button>
 
-            {ignoredLayersOpen && (
+              {ignoredLayersOpen && (
               <div className="mt-2 space-y-2">
                 <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded px-3 py-2">
                   <strong>Note:</strong> The last Linear layer (classifier head) is pre-selected below and also
@@ -1042,6 +1166,7 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
                 )}
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -1158,6 +1283,30 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
                   <span className="text-gray-500">Calibration Samples: </span>
                   {config.calibration_num_samples}
                 </li>
+              )}
+              {config.importance_type === "neuron_coverage" && (
+                <>
+                  <li>
+                    <span className="text-gray-500">Coverage Metric: </span>
+                    {config.coverage_metric}
+                  </li>
+                  <li>
+                    <span className="text-gray-500">Calibration Samples: </span>
+                    {config.calibration_num_samples}
+                  </li>
+                </>
+              )}
+              {config.importance_type === "wanda" && (
+                <>
+                  <li>
+                    <span className="text-gray-500">Weight Norm: </span>
+                    {config.wanda_weight_norm.toUpperCase()}
+                  </li>
+                  <li>
+                    <span className="text-gray-500">Calibration Samples: </span>
+                    {config.calibration_num_samples}
+                  </li>
+                </>
               )}
             </ul>
           </dd>

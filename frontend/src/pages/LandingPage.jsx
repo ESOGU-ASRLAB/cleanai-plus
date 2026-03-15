@@ -29,7 +29,7 @@ const features = [
       />
     ),
     title: "Pruning & Optimization",
-    desc: "Reduce model size and inference cost with configurable pruning strategies — L1, L2, random, and more.",
+    desc: "Reduce model size and inference cost with 12 configurable pruning strategies — magnitude, taylor, activation, WANDA, neuron coverage, and more.",
   },
   {
     color: "bg-emerald-100 text-emerald-600",
@@ -175,7 +175,7 @@ const LandingPage = () => {
           <div className="mt-16 grid grid-cols-2 sm:grid-cols-4 gap-6 max-w-2xl mx-auto">
             {[
               { value: "5+", label: "Model Formats" },
-              { value: "10+", label: "Pruning Strategies" },
+              { value: "12", label: "Pruning Strategies" },
               { value: "PDF", label: "Auto Reports" },
               { value: "CO₂", label: "Emission Tracking" },
             ].map(({ value, label }) => (

@@ -5,7 +5,7 @@
 ## ✨ Özellikler
 
 - **Model Çalıştırma & Değerlendirme** — Dataset üzerinde inference çalıştır, confusion matrix, precision/recall/F1, per-class accuracy gibi metrikleri hesapla
-- **Budama & Optimizasyon** — 10'dan fazla pruning stratejisi ile model boyutunu küçült, ağırlıkları sıkıştır
+- **Budama & Optimizasyon** — 12 farklı pruning stratejisi ile model boyutunu küçült (magnitude, taylor, activation, neuron coverage, WANDA, LAMP, FPGM, bn_scale, random)
 - **Veri Seti Yönetimi** — CIFAR-10, ImageNet, özel pickle ve klasör formatlarını destekler
 - **Önişleme Pipeline'ları** — Görsel sürükle-bırak builder veya Python kod editörü ile dönüşüm pipeline'ı oluştur
 - **PDF Raporları** — Confusion matrix, metrikler ve karbon emisyon tahmini içeren otomatik rapor üretimi
