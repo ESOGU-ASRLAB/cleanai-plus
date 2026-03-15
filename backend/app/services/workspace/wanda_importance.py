@@ -71,10 +71,13 @@ class WandaImportance(tp.importance.Importance):
         print(f"Weight Norm: {self.weight_norm.upper()}")
         print(f"Calibration Samples: {len(self.calibration_inputs)}")
         
-        # Create a simple dataset wrapper
+        # Create a simple dataset wrapper that returns tensors without extra batching
+        # Each calibration_input is already [1, C, H, W], so we need to squeeze or concatenate
         class SimpleDataset:
             def __init__(self, inputs):
-                self.inputs = inputs
+                # Remove batch dimension from each input since DataLoader will add it back
+                self.inputs = [inp.squeeze(0) if inp.dim() == 4 and inp.size(0) == 1 else inp 
+                              for inp in inputs]
             
             def __len__(self):
                 return len(self.inputs)

@@ -330,6 +330,7 @@ class OptimizationService:
                 calibration_inputs,
                 _advance,
                 benchmark_inputs,
+                config,
             )
 
             # Cancel may have arrived while _run_pruning was executing its last step
@@ -844,12 +845,18 @@ class OptimizationService:
         calibration_inputs: Optional[List[torch.Tensor]] = None,
         progress_callback=None,
         benchmark_inputs: Optional[List[torch.Tensor]] = None,
+        config: dict = None,
     ) -> Dict[str, Any]:
 
         def _report(n: int, msg: str):
             if progress_callback:
                 progress_callback(n, msg)
         """Apply torch-pruning structural pruning to the model."""
+        
+        # Default config if not provided
+        if config is None:
+            config = {}
+        
         try:
             import torch_pruning as tp
         except ImportError:
@@ -1017,35 +1024,57 @@ class OptimizationService:
         # ------------------------------------------------------------------ #
         import time as _time
         _bench = benchmark_inputs if benchmark_inputs else [example_inputs]
-        _N_WARMUP = 3
+        _N_WARMUP = 10  # Increased from 3 for more reliable measurements
         _before_ms, _before_throughput = 0.0, 0.0
         try:
             model.eval()
+            # More extensive warmup for accurate baseline
             with torch.no_grad():
-                for _bi in _bench[:_N_WARMUP]:
-                    model(_bi)
+                for _ in range(_N_WARMUP):
+                    for _bi in _bench:
+                        model(_bi)
             if hasattr(device, "type") and device.type == "cuda":
                 torch.cuda.synchronize()
-            _t0 = _time.perf_counter()
-            with torch.no_grad():
-                for _bi in _bench:
-                    model(_bi)
-            if hasattr(device, "type") and device.type == "cuda":
-                torch.cuda.synchronize()
-            _t1 = _time.perf_counter()
-            _before_ms = (_t1 - _t0) / len(_bench) * 1000
-            _before_throughput = len(_bench) / (_t1 - _t0)
+                torch.cuda.empty_cache()  # Clear cache for clean measurement
+            
+            # Actual timing measurement with multiple runs for stability
+            _timings = []
+            for _ in range(3):  # Take average of 3 runs
+                _t0 = _time.perf_counter()
+                with torch.no_grad():
+                    for _bi in _bench:
+                        model(_bi)
+                if hasattr(device, "type") and device.type == "cuda":
+                    torch.cuda.synchronize()
+                _t1 = _time.perf_counter()
+                _timings.append(_t1 - _t0)
+            
+            # Use median to avoid outliers
+            _timings.sort()
+            _elapsed = _timings[1]  # median of 3
+            _before_ms = _elapsed / len(_bench) * 1000
+            _before_throughput = len(_bench) / _elapsed
         except Exception as _te:
             print(f"Warning: Could not measure pre-pruning inference time: {_te}")
 
         _before_shapes = {}
         for _n, _m in model.named_modules():
             if isinstance(_m, nn.Conv2d):
-                _before_shapes[_n] = {"type": "Conv2d", "out": _m.out_channels, "in": _m.in_channels}
+                # Conv2d params: out_ch * in_ch * k * k + (out_ch if bias else 0)
+                _params = _m.out_channels * _m.in_channels * _m.kernel_size[0] * _m.kernel_size[1]
+                if _m.bias is not None:
+                    _params += _m.out_channels
+                _before_shapes[_n] = {"type": "Conv2d", "out": _m.out_channels, "in": _m.in_channels, "params": _params}
             elif isinstance(_m, nn.Linear):
-                _before_shapes[_n] = {"type": "Linear", "out": _m.out_features, "in": _m.in_features}
+                # Linear params: out_feat * in_feat + (out_feat if bias else 0)
+                _params = _m.out_features * _m.in_features
+                if _m.bias is not None:
+                    _params += _m.out_features
+                _before_shapes[_n] = {"type": "Linear", "out": _m.out_features, "in": _m.in_features, "params": _params}
             elif isinstance(_m, (nn.BatchNorm1d, nn.BatchNorm2d)):
-                _before_shapes[_n] = {"type": type(_m).__name__, "out": _m.num_features, "in": _m.num_features}
+                # BatchNorm params: 2 * num_features (gamma + beta)
+                _params = 2 * _m.num_features
+                _before_shapes[_n] = {"type": type(_m).__name__, "out": _m.num_features, "in": _m.num_features, "params": _params}
 
         # ------------------------------------------------------------------ #
         # Build pruner and run iterative pruning steps
@@ -1092,26 +1121,37 @@ class OptimizationService:
         _after_shapes = {}
         for _lname, _lm in model.named_modules():
             if isinstance(_lm, nn.Conv2d):
+                _params = _lm.out_channels * _lm.in_channels * _lm.kernel_size[0] * _lm.kernel_size[1]
+                if _lm.bias is not None:
+                    _params += _lm.out_channels
                 _after_shapes[_lname] = {"type": "Conv2d",
-                                          "out": _lm.out_channels, "in": _lm.in_channels}
+                                          "out": _lm.out_channels, "in": _lm.in_channels, "params": _params}
             elif isinstance(_lm, nn.Linear):
+                _params = _lm.out_features * _lm.in_features
+                if _lm.bias is not None:
+                    _params += _lm.out_features
                 _after_shapes[_lname] = {"type": "Linear",
-                                          "out": _lm.out_features, "in": _lm.in_features}
+                                          "out": _lm.out_features, "in": _lm.in_features, "params": _params}
             elif isinstance(_lm, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                _params = 2 * _lm.num_features
                 _after_shapes[_lname] = {"type": type(_lm).__name__,
-                                          "out": _lm.num_features, "in": _lm.num_features}
+                                          "out": _lm.num_features, "in": _lm.num_features, "params": _params}
         _layer_changes = []
         for _lname, _b in _before_shapes.items():
             _a = _after_shapes.get(_lname)
             if _a and _b["out"] != _a["out"]:
                 _red = round((1 - _a["out"] / max(_b["out"], 1)) * 100, 1)
+                _params_red = round((1 - _a["params"] / max(_b["params"], 1)) * 100, 1) if _b.get("params") and _a.get("params") else _red
                 _layer_changes.append({
                     "name": _lname, "type": _b["type"],
                     "before_in": _b["in"], "before_out": _b["out"],
                     "after_in":  _a["in"], "after_out":  _a["out"],
+                    "before_params": _b.get("params", 0),
+                    "after_params": _a.get("params", 0),
                     "reduction_pct": _red,
+                    "params_reduction_pct": _params_red,
                 })
-        _layer_changes.sort(key=lambda x: x["reduction_pct"], reverse=True)
+        _layer_changes.sort(key=lambda x: x["params_reduction_pct"], reverse=True)
 
         # Measure pruned stats — B7
         model.eval()
@@ -1127,20 +1167,33 @@ class OptimizationService:
         # Measure inference time AFTER pruning
         _after_ms, _after_throughput = 0.0, 0.0
         try:
+            model.eval()
+            # Extensive warmup for pruned model (needs more due to irregular structure)
             with torch.no_grad():
-                for _bi in _bench[:_N_WARMUP]:
-                    model(_bi)
+                for _ in range(_N_WARMUP * 2):  # Extra warmup for pruned model
+                    for _bi in _bench:
+                        model(_bi)
             if hasattr(device, "type") and device.type == "cuda":
                 torch.cuda.synchronize()
-            _t0 = _time.perf_counter()
-            with torch.no_grad():
-                for _bi in _bench:
-                    model(_bi)
-            if hasattr(device, "type") and device.type == "cuda":
-                torch.cuda.synchronize()
-            _t1 = _time.perf_counter()
-            _after_ms = (_t1 - _t0) / len(_bench) * 1000
-            _after_throughput = len(_bench) / (_t1 - _t0)
+                torch.cuda.empty_cache()
+            
+            # Actual timing measurement with multiple runs
+            _timings = []
+            for _ in range(3):  # Take average of 3 runs
+                _t0 = _time.perf_counter()
+                with torch.no_grad():
+                    for _bi in _bench:
+                        model(_bi)
+                if hasattr(device, "type") and device.type == "cuda":
+                    torch.cuda.synchronize()
+                _t1 = _time.perf_counter()
+                _timings.append(_t1 - _t0)
+            
+            # Use median to avoid outliers
+            _timings.sort()
+            _elapsed = _timings[1]  # median of 3
+            _after_ms = _elapsed / len(_bench) * 1000
+            _after_throughput = len(_bench) / _elapsed
         except Exception as _te:
             print(f"Warning: post-pruning timing failed: {_te}")
 

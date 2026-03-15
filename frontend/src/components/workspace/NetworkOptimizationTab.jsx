@@ -1708,8 +1708,25 @@ const NetworkOptimizationTab = ({ workspace, isReadonly = false }) => {
                     </h5>
                     <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
                       <div className="grid grid-cols-2 gap-px bg-gray-200">
-                        {Object.entries(selectedOptimization.config || {}).map(
-                          ([key, value]) => (
+                        {Object.entries(selectedOptimization.config || {})
+                          .filter(([key, value]) => {
+                            const importanceType = selectedOptimization.config?.importance_type;
+                            
+                            // Filter out importance-specific params based on type
+                            if (key === 'wanda_weight_norm' && importanceType !== 'wanda') return false;
+                            if (key === 'coverage_metric' && importanceType !== 'neuron_coverage') return false;
+                            if (key === 'bn_scale_reg' && importanceType !== 'bn_scale') return false;
+                            if (key === 'bn_scale_group_lasso' && importanceType !== 'bn_scale') return false;
+                            
+                            // Hide calibration_num_samples for types that don't use it
+                            if (key === 'calibration_num_samples' && 
+                                !['taylor', 'neuron_coverage', 'wanda'].includes(importanceType)) {
+                              return false;
+                            }
+                            
+                            return true;
+                          })
+                          .map(([key, value]) => (
                             <div key={key} className="bg-white px-3 py-2">
                               <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-0.5">
                                 {key.replace(/_/g, " ")}

@@ -7,6 +7,8 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.graphics.shapes import Drawing, Rect, String, Polygon
+from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.graphics.charts.legends import Legend
 from beanie import PydanticObjectId
 from app.models.report import Report, ReportType
 from app.models.workspace.execution import Execution
@@ -695,6 +697,95 @@ class ReportService:
             ]))
             return t
 
+        def top_pruned_layers_chart(layers_data, title="Top 5 Most Pruned Layers"):
+            """Create a grouped bar chart showing before/after parameters for top layers."""
+            if not layers_data:
+                return None
+            
+            # Limit to top 5
+            top_5 = layers_data[:5]
+            
+            # Chart dimensions
+            chart_width = CW - 60
+            chart_height = 200
+            d = Drawing(CW, chart_height + 50)
+            
+            # Create vertical bar chart
+            bc = VerticalBarChart()
+            bc.x = 50
+            bc.y = 30
+            bc.width = chart_width
+            bc.height = chart_height
+            
+            # Prepare data: [[before_params...], [after_params...]]
+            before_data = [lc.get("before_params", 0) for lc in top_5]
+            after_data = [lc.get("after_params", 0) for lc in top_5]
+            bc.data = [before_data, after_data]
+            
+            # Category names (layer names, truncated)
+            category_names = []
+            for lc in top_5:
+                name = lc["name"]
+                if len(name) > 15:
+                    name = "..." + name[-12:]
+                category_names.append(name)
+            bc.categoryAxis.categoryNames = category_names
+            bc.categoryAxis.labels.angle = 15
+            bc.categoryAxis.labels.fontSize = 7
+            bc.categoryAxis.labels.fillColor = C_GRAY_800
+            
+            # Value axis
+            bc.valueAxis.labels.fontSize = 8
+            bc.valueAxis.labels.fillColor = C_GRAY_800
+            bc.valueAxis.labelTextFormat = lambda x: f'{int(x):,}' if x >= 1000 else str(int(x))
+            
+            # Bar styling
+            bc.bars[0].fillColor = C_BAR_BEFORE  # Before - gray
+            bc.bars[1].fillColor = C_BAR_AFTER   # After - green
+            bc.bars[0].strokeColor = None
+            bc.bars[1].strokeColor = None
+            bc.bars.strokeWidth = 0
+            bc.barSpacing = 2
+            bc.groupSpacing = 15
+            bc.barWidth = 12
+            
+            # Add legend
+            legend = Legend()
+            legend.x = 50
+            legend.y = chart_height + 35
+            legend.dx = 8
+            legend.dy = 8
+            legend.fontName = 'Helvetica'
+            legend.fontSize = 8
+            legend.columnMaximum = 2
+            legend.alignment = 'right'
+            legend.colorNamePairs = [
+                (C_BAR_BEFORE, 'Before Pruning'),
+                (C_BAR_AFTER, 'After Pruning'),
+            ]
+            
+            # Add title
+            d.add(String(CW / 2, chart_height + 35, title,
+                        fontName='Helvetica-Bold', fontSize=10,
+                        fillColor=C_GRAY_800, textAnchor='middle'))
+            
+            # Add reduction percentages above bars
+            for i, lc in enumerate(top_5):
+                reduction = lc.get("params_reduction_pct", lc.get("reduction_pct", 0))
+                if reduction > 0:
+                    # Position text above the bar group
+                    x_pos = bc.x + (i * (bc.barWidth * 2 + bc.groupSpacing)) + bc.barWidth
+                    max_val = max(lc.get("before_params", 0), lc.get("after_params", 0))
+                    y_pos = bc.y + (max_val / max(max(before_data + after_data), 1)) * bc.height + 5
+                    d.add(String(x_pos, y_pos, f'-{reduction}%',
+                                fontName='Helvetica-Bold', fontSize=7,
+                                fillColor=C_SUCCESS, textAnchor='middle'))
+            
+            d.add(bc)
+            d.add(legend)
+            
+            return d
+
         # ---- pull data ------------------------------------------------ #
         result   = optimization.result or {}
         config   = optimization.config or {}
@@ -882,24 +973,48 @@ class ReportService:
         if layer_changes:
             total_lc = len(layer_changes)
             shown    = min(total_lc, 40)
+            
+            # Add top 5 pruned layers bar chart
+            top_chart = top_pruned_layers_chart(layer_changes[:5])
+            if top_chart:
+                elements.append(Paragraph(
+                    "Top 5 Most Pruned Layers (by parameter reduction)",
+                    note_style,
+                ))
+                elements.append(Spacer(1, 6))
+                elements.append(bar_section(top_chart))
+                elements.append(Spacer(1, 12))
+            
             elements.append(Paragraph(
                 f"{total_lc} layer(s) were structurally modified. "
                 f"Sorted by reduction \u2014 top {shown} shown.",
                 note_style,
             ))
             elements.append(Spacer(1, 6))
-            COL_N, COL_T, COL_B, COL_A, COL_P = 175, 65, 90, 90, 72
-            layer_data = [["Layer", "Type", "Before", "After", "Reduction"]]
+            # Wider table to include parameter counts
+            COL_N, COL_T, COL_SH, COL_PB, COL_PA, COL_R = 140, 50, 80, 70, 70, 82
+            layer_data = [["Layer", "Type", "Shape (In→Out)", "Params\nBefore", "Params\nAfter", "Reduction"]]
             for lc in layer_changes[:shown]:
                 name = lc["name"]
-                if len(name) > 28: name = "\u2026" + name[-26:]
+                if len(name) > 22: name = "\u2026" + name[-20:]
                 ltype = (lc["type"].replace("BatchNorm2d", "BN2d")
                                    .replace("BatchNorm1d", "BN1d"))
+                
+                # Format parameter counts
+                pb = lc.get('before_params', 0)
+                pa = lc.get('after_params', 0)
+                pb_str = f"{pb:,}" if pb < 1000000 else f"{pb/1e6:.2f}M"
+                pa_str = f"{pa:,}" if pa < 1000000 else f"{pa/1e6:.2f}M"
+                
+                # Use params reduction if available, otherwise channel reduction
+                reduction = lc.get('params_reduction_pct', lc.get('reduction_pct', 0))
+                
                 layer_data.append([
                     name, ltype,
                     f"{lc['before_in']}\u2192{lc['before_out']}",
-                    f"{lc['after_in']}\u2192{lc['after_out']}",
-                    f"{lc['reduction_pct']}%",
+                    pb_str,
+                    pa_str,
+                    f"{reduction}%",
                 ])
             lt_style = [
                 ('BACKGROUND',    (0, 0), (-1, 0),  C_SECONDARY),
@@ -917,12 +1032,14 @@ class ReportService:
                 ('FONTNAME',      (-1, 1), (-1, -1), 'Helvetica-Bold'),
             ]
             for i, lc in enumerate(layer_changes[:shown], start=1):
-                bg = (colors.HexColor('#d1fae5') if lc['reduction_pct'] >= 40
-                      else colors.HexColor('#fef3c7') if lc['reduction_pct'] >= 20
+                # Use params_reduction_pct if available
+                red_pct = lc.get('params_reduction_pct', lc.get('reduction_pct', 0))
+                bg = (colors.HexColor('#d1fae5') if red_pct >= 40
+                      else colors.HexColor('#fef3c7') if red_pct >= 20
                       else colors.HexColor('#ede9fe'))
                 lt_style.append(('BACKGROUND', (-1, i), (-1, i), bg))
             lt_style.append(('TEXTCOLOR', (-1, 1), (-1, -1), C_SUCCESS))
-            layer_tbl = Table(layer_data, colWidths=[COL_N, COL_T, COL_B, COL_A, COL_P])
+            layer_tbl = Table(layer_data, colWidths=[COL_N, COL_T, COL_SH, COL_PB, COL_PA, COL_R])
             layer_tbl.setStyle(TableStyle(lt_style))
             elements.append(layer_tbl)
         else:
