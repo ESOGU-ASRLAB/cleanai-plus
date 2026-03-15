@@ -31,3 +31,21 @@ class ExecutionResponse(BaseModel):
     error_message: Optional[str] = None
 
 
+class MetricComparison(BaseModel):
+    """Comparison of a single metric between two executions"""
+    metric_name: str
+    execution1_value: Optional[float] = None
+    execution2_value: Optional[float] = None
+    difference: Optional[float] = None
+    percent_change: Optional[float] = None
+    improved: Optional[bool] = None
+
+
+class ExecutionComparisonResponse(BaseModel):
+    """Comparison between two executions"""
+    execution1: ExecutionResponse
+    execution2: ExecutionResponse
+    metric_comparisons: list[MetricComparison]
+    summary: Dict[str, Any]
+
+

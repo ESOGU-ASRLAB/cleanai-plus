@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Stepper, Button, Card, Input } from "../common";
 import { useAuth } from "../../context/AuthContext";
 import { useAlert } from "../../context/AlertContext";
+import ExecutionCompare from "./ExecutionCompare";
 import {
   FiPlay,
   FiCpu,
@@ -19,6 +20,7 @@ import {
   FiFileText,
   FiStopCircle,
   FiChevronRight,
+  FiColumns,
 } from "react-icons/fi";
 
 const EXECUTION_STEPS = [
@@ -38,6 +40,11 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
   const [selectedExecution, setSelectedExecution] = useState(null);
   const [showFullError, setShowFullError] = useState(false);
   const [executionProgress, setExecutionProgress] = useState({});
+
+  // Comparison State
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState([]);
+  const [showCompare, setShowCompare] = useState(false);
 
   // Wizard State
   const [activeStep, setActiveStep] = useState(1);
@@ -568,6 +575,24 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
     }
   };
 
+  if (showCompare && selectedForCompare.length === 2) {
+    return (
+      <ExecutionCompare
+        workspace={workspace}
+        execution1Id={selectedForCompare[0]}
+        execution2Id={selectedForCompare[1]}
+        models={models}
+        datasets={datasets}
+        preprocessings={preprocessings}
+        onClose={() => {
+          setShowCompare(false);
+          setCompareMode(false);
+          setSelectedForCompare([]);
+        }}
+      />
+    );
+  }
+
   if (view === "create") {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -624,24 +649,74 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
             Manage and monitor your model inference runs
           </p>
         </div>
-        {!isReadonly && (
-          <Button
-            onClick={handleStartWizard}
-            disabled={executions.some(
-              (e) => e.status === "running" || e.status === "pending",
-            )}
-            title={
-              executions.some(
+        <div className="flex gap-3">
+          {!isReadonly && executions.length > 0 && (
+            <>
+              {!compareMode ? (
+                <Button
+                  onClick={() => {
+                    const completed = executions.filter(e => e.status === "completed");
+                    if (completed.length < 2) {
+                      showAlert("You need at least 2 completed executions to compare.", "Not Enough Executions", "info");
+                      return;
+                    }
+                    setCompareMode(true);
+                    setSelectedForCompare([]);
+                  }}
+                  variant="outline"
+                  className="flex items-center"
+                  disabled={executions.filter(e => e.status === "completed").length < 2}
+                  title={executions.filter(e => e.status === "completed").length < 2 ? "Need at least 2 completed executions" : "Compare executions"}
+                >
+                  <FiColumns className="mr-2" /> Compare
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    onClick={() => {
+                      if (selectedForCompare.length === 2) {
+                        setShowCompare(true);
+                      } else {
+                        showAlert("Please select exactly 2 executions to compare.", "Selection Required", "info");
+                      }
+                    }}
+                    disabled={selectedForCompare.length !== 2}
+                    className="flex items-center bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-500"
+                  >
+                    <FiColumns className="mr-2" /> Compare Selected ({selectedForCompare.length}/2)
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setCompareMode(false);
+                      setSelectedForCompare([]);
+                    }}
+                    variant="secondary"
+                  >
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+          {!isReadonly && (
+            <Button
+              onClick={handleStartWizard}
+              disabled={executions.some(
                 (e) => e.status === "running" || e.status === "pending",
-              )
-                ? "An execution is already in progress"
-                : undefined
-            }
-            className="flex items-center"
-          >
-            <FiPlay className="mr-2" /> New Execution
-          </Button>
-        )}
+              )}
+              title={
+                executions.some(
+                  (e) => e.status === "running" || e.status === "pending",
+                )
+                  ? "An execution is already in progress"
+                  : undefined
+              }
+              className="flex items-center"
+            >
+              <FiPlay className="mr-2" /> New Execution
+            </Button>
+          )}
+        </div>
       </div>
 
       {executions.length === 0 ? (
@@ -666,6 +741,11 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    {compareMode && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Select
+                      </th>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
@@ -700,15 +780,36 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                     <React.Fragment key={exec.id}>
                       <tr
                         onClick={() => {
-                          setSelectedExecution(exec);
-                          setShowFullError(false);
+                          if (!compareMode) {
+                            setSelectedExecution(exec);
+                            setShowFullError(false);
+                          }
                         }}
-                        className={`cursor-pointer transition-colors ${
+                        className={`${compareMode && exec.status !== "completed" ? "opacity-50" : "cursor-pointer"} transition-colors ${
                           selectedExecution?.id === exec.id
                             ? "bg-blue-50"
                             : "hover:bg-gray-50"
                         } ${exec.status === "running" ? "[&>td]:pb-0 [&>td]:pt-4" : ""}`}
                       >
+                        {compareMode && (
+                          <td className="px-6 py-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              disabled={exec.status !== "completed"}
+                              checked={selectedForCompare.includes(exec.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  if (selectedForCompare.length < 2) {
+                                    setSelectedForCompare([...selectedForCompare, exec.id]);
+                                  }
+                                } else {
+                                  setSelectedForCompare(selectedForCompare.filter(id => id !== exec.id));
+                                }
+                              }}
+                              className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                            />
+                          </td>
+                        )}
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span
                             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium

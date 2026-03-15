@@ -10,7 +10,7 @@ from app.models.report import Report, ReportType
 from app.models.workspace.execution import ExecutionStatus
 from app.database.mongodb import get_database
 from app.dependencies import get_current_user
-from app.schemas.execution import ExecutionCreate, ExecutionResponse
+from app.schemas.execution import ExecutionCreate, ExecutionResponse, ExecutionComparisonResponse
 
 router = APIRouter()
 
@@ -94,3 +94,22 @@ async def cancel_execution(
             detail="Execution is not in a cancellable state.",
         )
     return {"message": "Cancellation requested.", "execution_id": execution_id}
+
+@router.get("/compare", response_model=ExecutionComparisonResponse)
+async def compare_executions(
+    workspace_id: str,
+    execution1_id: str,
+    execution2_id: str,
+    current_user: User = Depends(get_current_user),
+    service: ExecutionService = Depends(get_execution_service),
+):
+    """Compare metrics between two executions."""
+    comparison = await service.compare_executions(execution1_id, execution2_id)
+    if not comparison:
+        raise HTTPException(status_code=404, detail="One or both executions not found")
+    
+    # Verify both executions belong to this workspace
+    if str(comparison.execution1.workspace_id) != workspace_id or str(comparison.execution2.workspace_id) != workspace_id:
+        raise HTTPException(status_code=403, detail="Executions do not belong to this workspace")
+    
+    return comparison

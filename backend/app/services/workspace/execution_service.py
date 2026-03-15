@@ -903,3 +903,99 @@ class ExecutionService:
             _execution_progress.pop(execution_id, None)
             _execution_cancelled.discard(execution_id)
         return True
+
+    async def compare_executions(self, execution1_id: str, execution2_id: str):
+        """
+        Compare metrics between two executions and return comparison data.
+        Identifies improvements and declines in metrics.
+        """
+        from app.schemas.execution import ExecutionComparisonResponse, MetricComparison, ExecutionResponse
+        
+        exec1 = await self.get_execution(execution1_id)
+        exec2 = await self.get_execution(execution2_id)
+        
+        if not exec1 or not exec2:
+            return None
+        
+        # Convert to response schemas
+        exec1_response = ExecutionResponse.model_validate(exec1)
+        exec2_response = ExecutionResponse.model_validate(exec2)
+        
+        # Extract numeric metrics for comparison
+        metrics_to_compare = {
+            "accuracy": {"higher_is_better": True, "format": "percentage"},
+            "top5_accuracy": {"higher_is_better": True, "format": "percentage"},
+            "loss": {"higher_is_better": False, "format": "number"},
+            "precision": {"higher_is_better": True, "format": "percentage"},
+            "recall": {"higher_is_better": True, "format": "percentage"},
+            "f1_score": {"higher_is_better": True, "format": "percentage"},
+            "time_per_sample_ms": {"higher_is_better": False, "format": "number"},
+            "energy_per_sample_j": {"higher_is_better": False, "format": "number"},
+            "gflops_per_joule": {"higher_is_better": True, "format": "number"},
+            "emissions": {"higher_is_better": False, "format": "number"},
+            "emissions_per_min": {"higher_is_better": False, "format": "number"},
+        }
+        
+        comparisons = []
+        improved_count = 0
+        declined_count = 0
+        
+        for metric_name, config in metrics_to_compare.items():
+            value1 = exec1.metrics.get(metric_name)
+            value2 = exec2.metrics.get(metric_name)
+            
+            # Convert string values to float if needed
+            if value1 is not None and isinstance(value1, str):
+                try:
+                    value1 = float(value1)
+                except:
+                    value1 = None
+            if value2 is not None and isinstance(value2, str):
+                try:
+                    value2 = float(value2)
+                except:
+                    value2 = None
+            
+            if value1 is not None and value2 is not None:
+                difference = value2 - value1
+                percent_change = (difference / value1 * 100) if value1 != 0 else 0
+                
+                # Determine if improved based on metric type
+                if config["higher_is_better"]:
+                    improved = difference > 0
+                else:
+                    improved = difference < 0
+                
+                if improved:
+                    improved_count += 1
+                elif difference != 0:
+                    declined_count += 1
+                
+                comparisons.append(MetricComparison(
+                    metric_name=metric_name,
+                    execution1_value=round(value1, 6),
+                    execution2_value=round(value2, 6),
+                    difference=round(difference, 6),
+                    percent_change=round(percent_change, 2),
+                    improved=improved if difference != 0 else None
+                ))
+            else:
+                comparisons.append(MetricComparison(
+                    metric_name=metric_name,
+                    execution1_value=value1,
+                    execution2_value=value2
+                ))
+        
+        summary = {
+            "total_metrics_compared": len([c for c in comparisons if c.difference is not None]),
+            "improved_metrics": improved_count,
+            "declined_metrics": declined_count,
+            "unchanged_metrics": len([c for c in comparisons if c.difference == 0]),
+        }
+        
+        return ExecutionComparisonResponse(
+            execution1=exec1_response,
+            execution2=exec2_response,
+            metric_comparisons=comparisons,
+            summary=summary
+        )
