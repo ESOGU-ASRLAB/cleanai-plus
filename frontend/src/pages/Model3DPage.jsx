@@ -12,6 +12,8 @@ import { MainLayout } from '../components/layout';
 window.THREE = THREE;
 window.$ = window.jQuery = $;
 
+const BACKEND = 'http://localhost:8000';
+
 const Model3DPage = () => {
     const { id, modelId } = useParams();
     const { token } = useAuth();
@@ -22,6 +24,9 @@ const Model3DPage = () => {
     const [error, setError] = useState(null);
     const [isMaximized, setIsMaximized] = useState(false);
     const [totalParams, setTotalParams] = useState(0);
+    const [tsLoading, setTsLoading] = useState(false);
+    const [tsError, setTsError] = useState(null);
+    const [tsProgress, setTsProgress] = useState('');
 
     const formatBytes = (bytes, decimals = 2) => {
         if (!+bytes) return '0 Bytes';
@@ -40,9 +45,7 @@ const Model3DPage = () => {
     }, [layers]);
 
     useEffect(() => {
-        const handleResize = () => {
-             // TensorSpace usually listens to window resize logic if set up correctly
-        };
+        const handleResize = () => {};
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
@@ -54,32 +57,27 @@ const Model3DPage = () => {
         }, 100);
     };
 
-    // Fetch Data Effect
+    // Fetch model details & layer summary
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Fetch model structure
-                const response = await fetch(
-                    `http://localhost:8000/api/workspaces/${id}/models/${modelId}/structure`,
-                    {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }
-                );
+                const [structRes, modelRes] = await Promise.all([
+                    fetch(`${BACKEND}/api/workspaces/${id}/models/${modelId}/structure`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }),
+                    fetch(`${BACKEND}/api/workspaces/${id}/models/${modelId}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }),
+                ]);
 
-                if (!response.ok) throw new Error("Failed to fetch model structure");
-                const structureData = await response.json();
+                if (!structRes.ok) throw new Error('Failed to fetch model structure');
+                const structureData = await structRes.json();
                 setLayers(structureData);
 
-                // Fetch model details for name etc
-                const modelRes = await fetch(
-                     `http://localhost:8000/api/workspaces/${id}/models/${modelId}`,
-                     { headers: { Authorization: `Bearer ${token}` } }
-                );
                 if (modelRes.ok) {
                     const mData = await modelRes.json();
                     setModelData(mData);
                 }
-
             } catch (err) {
                 console.error(err);
                 setError(err.message);
@@ -88,73 +86,113 @@ const Model3DPage = () => {
             }
         };
 
-        if (id && modelId && token) {
-            fetchData();
-        }
+        if (id && modelId && token) fetchData();
     }, [id, modelId, token]);
 
-    // TensorSpace Init Effect
+    // TensorSpace 3-D visualisation — layer architecture from ONNX parsed on backend
     useEffect(() => {
-        if (loading || layers.length === 0 || !containerRef.current) return;
+        if (loading || !modelData || !containerRef.current) return;
 
-        // Clear container
-        containerRef.current.innerHTML = '';
+        let cancelled = false;
 
-        try {
-            // Create TensorSpace model
-            const modelContainer = containerRef.current;
-            const model = new TSP.models.Sequential(modelContainer);
+        const initTensorSpace = async () => {
+            setTsLoading(true);
+            setTsError(null);
 
-            // Add layers based on fetched structure
-            layers.forEach((layer, index) => {
-                let shape = [];
-                if (typeof layer.shape === 'string') {
-                     const matches = layer.shape.match(/(\d+)/g);
-                     if (matches) {
-                         const dims = matches.map(Number);
-                         // If 4 dims [B, C, H, W], take [W, H, C]
-                         if (dims.length === 4) {
-                             shape = [dims[3], dims[2], dims[1]];
-                         } else if (dims.length === 3) {
-                             // [C, H, W] -> [W, H, C]
-                             shape = [dims[2], dims[1], dims[0]];
-                         } else {
-                             shape = dims;
-                         }
-                     }
+            try {
+                // ── Step 1: request backend conversion + layer structure
+                setTsProgress('Converting model (first load may take a minute)…');
+
+                const convRes = await fetch(
+                    `${BACKEND}/api/workspaces/${id}/models/${modelId}/tensorspace`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+
+                if (!convRes.ok) {
+                    const err = await convRes.json().catch(() => ({ detail: convRes.statusText }));
+                    throw new Error(err.detail || 'Conversion failed');
                 }
 
-                const config = {
-                    name: layer.name || `layer_${index}`,
+                const { url, tsp_layers } = await convRes.json();
+                if (cancelled) return;
+
+                console.log('[TensorSpace] tsp_layers from backend:', tsp_layers);
+
+                if (!tsp_layers || tsp_layers.length === 0) {
+                    throw new Error(
+                        'No renderable layers found in the model. ' +
+                        'Only Conv, Pool, Dense, Flatten and Input layers are supported.'
+                    );
+                }
+
+                // ── Step 2: build TensorSpace architecture (shape-based, no model.load)
+                // TensorSpace Sequential requires:
+                //   1. model.add() with explicit `shape` on every layer
+                //   2. model.init()
+                // model.load() is only for activation visualisation and requires a
+                // TF.js *Layers* model — our converted graph model is incompatible with
+                // TensorSpace's loader, so we skip it entirely.
+                setTsProgress('Initialising 3D visualisation…');
+                containerRef.current.innerHTML = '';
+
+                const tspModel = new TSP.models.Sequential(containerRef.current);
+
+                const LAYER_MAP = {
+                    Input3d:   () => TSP.layers?.Input3d   || TSP.layers?.RGBInput,
+                    Input1d:   () => TSP.layers?.Input1d,
+                    Conv2d:    () => TSP.layers?.Conv2d,
+                    Pooling2d: () => TSP.layers?.Pooling2d,
+                    Flatten:   () => TSP.layers?.Flatten,
+                    Dense:     () => TSP.layers?.Dense,
                 };
-                
-                if (shape.length > 0) {
-                    config.shape = shape;
+
+                let addedCount = 0;
+                tsp_layers.forEach((layer, idx) => {
+                    const getClass = LAYER_MAP[layer.tspType];
+                    if (!getClass) return;
+                    const LayerClass = getClass();
+                    if (!LayerClass) {
+                        console.warn(`TSP layer class not found for type: ${layer.tspType}`);
+                        return;
+                    }
+                    try {
+                        tspModel.add(new LayerClass({
+                            ...layer.config,
+                            name: `${layer.tspType}_${idx}`,
+                        }));
+                        addedCount++;
+                    } catch (e) {
+                        console.warn(`Skipped layer ${layer.tspType}_${idx}:`, e.message);
+                    }
+                });
+
+                console.log(`[TensorSpace] Added ${addedCount} layers, calling init()`);
+
+                if (addedCount === 0) {
+                    throw new Error('All layers were rejected by TensorSpace. Check console for details.');
                 }
 
-                // Map layer types
-                const type = layer.type.toLowerCase();
-                
-                if (type.includes('conv')) {
-                    model.add(new TSP.layers.Conv2d(config));
-                } else if (type.includes('pool')) {
-                    model.add(new TSP.layers.Pooling2d(config));
-                } else if (type.includes('linear') || type.includes('dense')) {
-                    model.add(new TSP.layers.Dense(config));
-                } else if (type.includes('flatten')) {
-                    model.add(new TSP.layers.Flatten(config));
-                } else if (index === 0) {
-                     model.add(new TSP.layers.Input1d(config));
+                try {
+                    tspModel.init(() => {
+                        console.log('[TensorSpace] init() callback fired — scene ready');
+                        if (!cancelled) setTsProgress('');
+                    });
+                } catch (initErr) {
+                    throw new Error(`TensorSpace init() failed: ${initErr.message}`);
                 }
-            });
 
-            model.init();
+            } catch (e) {
+                console.error('TensorSpace init error:', e);
+                if (!cancelled) setTsError(e.message);
+            } finally {
+                if (!cancelled) setTsLoading(false);
+            }
+        };
 
-        } catch (e) {
-            console.error("TensorSpace init error:", e);
-        }
+        initTensorSpace();
 
-    }, [loading, layers, isMaximized]);
+        return () => { cancelled = true; };
+    }, [loading, modelData, id, modelId, token, isMaximized]);
 
     if (loading) {
         return (
@@ -319,7 +357,35 @@ const Model3DPage = () => {
                             : 'flex-1 rounded-lg relative border border-gray-800'}
                     `}>
                         <div ref={containerRef} className="w-full h-full" id="tsp-container"></div>
-                        
+
+                        {/* Conversion / loading overlay */}
+                        {(tsLoading || tsError) && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10 px-8 text-center">
+                                {tsLoading && !tsError && (
+                                    <>
+                                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mb-4"></div>
+                                        <p className="text-white font-semibold text-lg mb-1">Building 3D Visualisation</p>
+                                        <p className="text-gray-400 text-sm max-w-md">{tsProgress || 'Please wait…'}</p>
+                                        <p className="text-gray-500 text-xs mt-3">
+                                            First run converts the model: PyTorch → ONNX → TF.js
+                                            <br />This can take 1–3 minutes. Subsequent loads are instant.
+                                        </p>
+                                    </>
+                                )}
+                                {tsError && (
+                                    <>
+                                        <div className="text-red-400 text-5xl mb-4">⚠</div>
+                                        <p className="text-white font-semibold text-lg mb-2">Visualisation Failed</p>
+                                        <p className="text-red-300 text-sm max-w-md break-words">{tsError}</p>
+                                        <p className="text-gray-500 text-xs mt-3">
+                                            Common fixes: ensure the model was saved as a full model
+                                            (not state dict), or upload a definition file.
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         {/* Title Overlay when Maximized */}
                         {isMaximized && (
                             <div className="absolute top-4 left-4 bg-gray-900/80 text-white px-4 py-2 rounded backdrop-blur-sm border border-gray-700 pointer-events-none">

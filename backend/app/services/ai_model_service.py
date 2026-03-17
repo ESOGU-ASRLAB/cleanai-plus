@@ -674,3 +674,422 @@ class AIModelService:
             print(f"Conversion failed: {e}")
             raise e
 
+    async def get_tensorspace_model_url(self, model_id: str) -> dict:
+        """
+        Converts a model to TF.js format for TensorSpace visualization.
+        Pipeline: PyTorch → ONNX → TF SavedModel → TF.js (model.json)
+        Also parses the ONNX graph to return TensorSpace-compatible layer configs.
+        Result is cached after the first run.
+        """
+        if not ObjectId.is_valid(model_id):
+            raise ValueError("Invalid model ID")
+
+        model_doc = await self.models_collection.find_one({"_id": ObjectId(model_id)})
+        if not model_doc:
+            raise ValueError("Model not found")
+
+        model = AIModelInDB(**model_doc)
+
+        # Cache directory sits beside the model file
+        model_dir = os.path.dirname(model.file_path)
+        ts_cache_dir = os.path.join(model_dir, "tensorspace")
+        tfjs_dir = os.path.join(ts_cache_dir, "tfjs")
+        model_json_path = os.path.join(tfjs_dir, "model.json")
+
+        # ── Helper: parse ONNX graph → TensorSpace layer configs ────────────
+        def _extract_tsp_layers(onnx_path):
+            """
+            Walk the ONNX graph and build TensorSpace-compatible layer descriptors.
+            Every entry includes an explicit 'shape' so TensorSpace can render
+            without needing to compute shapes from loaded model data.
+            Returns [] on any error.
+            """
+            try:
+                import onnx as onnx_lib
+                onnx_model = onnx_lib.load(onnx_path)
+                try:
+                    from onnx import shape_inference
+                    onnx_model = shape_inference.infer_shapes(onnx_model)
+                except Exception:
+                    pass
+
+                graph = onnx_model.graph
+                initializer_names = {t.name for t in graph.initializer}
+
+                vi_map = {}
+                for vi in list(graph.value_info) + list(graph.input) + list(graph.output):
+                    vi_map[vi.name] = vi
+
+                def get_dims(name):
+                    vi = vi_map.get(name)
+                    if vi is None:
+                        return None
+                    try:
+                        if not vi.type.tensor_type.HasField("shape"):
+                            return None
+                        dims = [d.dim_value for d in vi.type.tensor_type.shape.dim]
+                        return dims if all(d >= 0 for d in dims) else None
+                    except Exception:
+                        return None
+
+                def nchw_shape(dims):
+                    """ONNX NCHW [N,C,H,W] → TensorSpace [W,H,C]"""
+                    if dims and len(dims) == 4:
+                        return [int(dims[3]), int(dims[2]), int(dims[1])]
+                    return None
+
+                tsp_layers = []
+                MAX_LAYERS = 25
+
+                # ── Input layer ───────────────────────────────────────────────
+                for inp in graph.input:
+                    if inp.name not in initializer_names:
+                        dims = get_dims(inp.name)
+                        if dims and len(dims) == 4:
+                            tsp_layers.append({
+                                "tspType": "Input3d",
+                                "config": {"shape": nchw_shape(dims)}
+                            })
+                        elif dims and len(dims) == 2:
+                            tsp_layers.append({
+                                "tspType": "Input1d",
+                                "config": {"shape": [int(dims[1])]}
+                            })
+                        break
+
+                SKIP_OPS = {
+                    "BatchNormalization", "Relu", "Clip", "Sigmoid", "Tanh",
+                    "HardSigmoid", "HardSwish", "PRelu", "LeakyRelu", "Selu", "Elu",
+                    "Pad", "Cast", "Transpose", "Unsqueeze", "Squeeze", "Gather",
+                    "Slice", "Split", "Identity", "Expand", "Tile", "Concat",
+                    "ConstantOfShape", "Shape", "Add", "Sub", "Mul", "Div",
+                    "Softmax", "LogSoftmax",
+                }
+                seen_flatten = False
+                past_global_pool = False
+                gap_channels = None   # channels after GlobalAveragePool
+
+                # ── First pass: collect ALL candidate layers ─────────────────
+                all_layers = []
+
+                for node in graph.node:
+                    op = node.op_type
+                    if op in SKIP_OPS:
+                        continue
+
+                    out_dims = None
+                    for out_name in node.output:
+                        d = get_dims(out_name)
+                        if d:
+                            out_dims = d
+                            break
+
+                    if op == "Conv":
+                        if past_global_pool:
+                            continue
+                        kernel_size = 1
+                        strides = 1
+                        padding = "same"
+                        filters = None
+
+                        for attr in node.attribute:
+                            if attr.name == "kernel_shape" and attr.ints:
+                                kernel_size = int(attr.ints[0])
+                            elif attr.name == "strides" and attr.ints:
+                                strides = int(attr.ints[0])
+                            elif attr.name == "auto_pad" and attr.s:
+                                if attr.s.decode() == "VALID":
+                                    padding = "valid"
+                            elif attr.name == "pads" and attr.ints:
+                                if all(p == 0 for p in attr.ints):
+                                    padding = "valid"
+
+                        shape = nchw_shape(out_dims) if out_dims else None
+                        if out_dims and len(out_dims) == 4:
+                            filters = int(out_dims[1])
+                        else:
+                            weight_name = node.input[1] if len(node.input) > 1 else None
+                            if weight_name:
+                                for init in graph.initializer:
+                                    if init.name == weight_name and init.dims:
+                                        filters = int(init.dims[0])
+                                        if len(init.dims) >= 4:
+                                            kernel_size = int(init.dims[2])
+                                        break
+
+                        if filters and shape:
+                            all_layers.append({
+                                "tspType": "Conv2d",
+                                "config": {
+                                    "filters": filters,
+                                    "kernelSize": kernel_size,
+                                    "strides": strides,
+                                    "padding": padding,
+                                    "shape": shape,
+                                }
+                            })
+
+                    elif op in ("MaxPool", "AveragePool"):
+                        pool_size = 2
+                        strides = 2
+                        for attr in node.attribute:
+                            if attr.name == "kernel_shape" and attr.ints:
+                                pool_size = int(attr.ints[0])
+                            elif attr.name == "strides" and attr.ints:
+                                strides = int(attr.ints[0])
+                        shape = nchw_shape(out_dims) if out_dims else None
+                        if shape:
+                            all_layers.append({
+                                "tspType": "Pooling2d",
+                                "config": {"poolSize": pool_size, "strides": strides, "shape": shape}
+                            })
+
+                    elif op == "GlobalAveragePool":
+                        if out_dims and len(out_dims) == 4:
+                            gap_channels = int(out_dims[1])
+                        past_global_pool = True
+
+                    elif op in ("Flatten", "Reshape"):
+                        if not seen_flatten and out_dims and len(out_dims) == 2:
+                            flat_size = int(out_dims[1])
+                            if flat_size > 0:
+                                all_layers.append({
+                                    "tspType": "Flatten",
+                                    "config": {"shape": [flat_size]}
+                                })
+                                seen_flatten = True
+                        elif not seen_flatten and past_global_pool and gap_channels:
+                            all_layers.append({
+                                "tspType": "Flatten",
+                                "config": {"shape": [gap_channels]}
+                            })
+                            seen_flatten = True
+
+                    elif op in ("Gemm", "MatMul"):
+                        units = None
+                        if out_dims:
+                            units = int(out_dims[-1])
+                        if not units:
+                            weight_name = node.input[1] if len(node.input) > 1 else None
+                            if weight_name:
+                                for init in graph.initializer:
+                                    if init.name == weight_name and init.dims:
+                                        units = int(init.dims[0])
+                                        break
+                        if units and not seen_flatten:
+                            flat_size = gap_channels if gap_channels else units
+                            all_layers.append({
+                                "tspType": "Flatten",
+                                "config": {"shape": [flat_size]}
+                            })
+                            seen_flatten = True
+                        if units:
+                            all_layers.append({
+                                "tspType": "Dense",
+                                "config": {"units": units, "shape": [units]}
+                            })
+
+                # ── Second pass: thin the spatial layers to fit MAX_VIS ───────
+                # Keep all non-Conv/Pooling layers (Flatten, Dense) and
+                # evenly sample from Conv/Pool layers so we stay within the visual budget.
+                MAX_VIS = 12   # TensorSpace handles ~12 layers comfortably
+                tail_types = {"Flatten", "Dense"}
+                tail_layers = [l for l in all_layers if l["tspType"] in tail_types]
+                spatial_layers = [l for l in all_layers if l["tspType"] not in tail_types]
+
+                budget = MAX_VIS - len(tail_layers)
+                if budget < 1:
+                    budget = 1
+
+                if len(spatial_layers) <= budget:
+                    sampled = spatial_layers
+                else:
+                    # Evenly spaced sample: always include first and last
+                    import math
+                    step = len(spatial_layers) / budget
+                    sampled = [spatial_layers[min(int(i * step), len(spatial_layers) - 1)]
+                               for i in range(budget)]
+                    # deduplicate consecutive identical shapes
+                    deduped = [sampled[0]]
+                    for lay in sampled[1:]:
+                        if lay["config"].get("shape") != deduped[-1]["config"].get("shape"):
+                            deduped.append(lay)
+                    sampled = deduped
+
+                return tsp_layers + sampled + tail_layers
+
+            except Exception as e:
+                print(f"TSP layer extraction error: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
+
+        # ── Cache hit ────────────────────────────────────────────────────────
+        if os.path.exists(model_json_path):
+            cached_onnx = (
+                model.file_path
+                if model.format == ModelFormat.ONNX and os.path.exists(model.file_path)
+                else os.path.join(ts_cache_dir, "model.onnx")
+            )
+            tsp_layers = _extract_tsp_layers(cached_onnx) if os.path.exists(cached_onnx) else []
+            rel = os.path.relpath(model_json_path, UPLOAD_DIR).replace("\\", "/")
+            return {"url": f"/uploads/{rel}", "tsp_layers": tsp_layers}
+
+        def _convert():
+            import torch
+            import sys
+            import importlib.util
+            import inspect
+
+            os.makedirs(ts_cache_dir, exist_ok=True)
+            os.makedirs(tfjs_dir, exist_ok=True)
+
+            # ── Step 1: Resolve ONNX path ─────────────────────────────────────
+            if model.format == ModelFormat.ONNX and os.path.exists(model.file_path):
+                onnx_path = model.file_path
+            else:
+                onnx_path = os.path.join(ts_cache_dir, "model.onnx")
+
+                if not os.path.exists(onnx_path):
+                    model_obj = None
+
+                    # Pre-load definition file so custom classes are available
+                    if model.definition_file_path and os.path.exists(model.definition_file_path):
+                        try:
+                            def_dir = os.path.dirname(model.definition_file_path)
+                            if def_dir not in sys.path:
+                                sys.path.insert(0, def_dir)
+                            mod_name = os.path.splitext(
+                                os.path.basename(model.definition_file_path)
+                            )[0]
+                            spec = importlib.util.spec_from_file_location(
+                                mod_name, model.definition_file_path
+                            )
+                            if spec and spec.loader:
+                                mod = importlib.util.module_from_spec(spec)
+                                sys.modules[mod_name] = mod
+                                spec.loader.exec_module(mod)
+                                import __main__
+                                for attr in dir(mod):
+                                    if not attr.startswith("_"):
+                                        setattr(__main__, attr, getattr(mod, attr))
+                        except Exception as e:
+                            print(f"Definition load warning: {e}")
+
+                    # Load PyTorch model object
+                    try:
+                        try:
+                            loaded = torch.load(
+                                model.file_path, map_location="cpu", weights_only=False
+                            )
+                        except TypeError:
+                            loaded = torch.load(model.file_path, map_location="cpu")
+
+                        if isinstance(loaded, torch.nn.Module):
+                            model_obj = loaded
+                        else:
+                            # Try to reconstruct from definition + state dict
+                            if model.definition_file_path:
+                                mod_name = os.path.splitext(
+                                    os.path.basename(model.definition_file_path)
+                                )[0]
+                                mod = sys.modules.get(mod_name)
+                                if mod:
+                                    state_dict = loaded
+                                    if isinstance(loaded, dict) and "state_dict" in loaded:
+                                        state_dict = loaded["state_dict"]
+                                    for name, cls in inspect.getmembers(mod, inspect.isclass):
+                                        if (
+                                            issubclass(cls, torch.nn.Module)
+                                            and cls is not torch.nn.Module
+                                        ):
+                                            try:
+                                                instance = cls()
+                                                instance.load_state_dict(state_dict, strict=False)
+                                                model_obj = instance
+                                                break
+                                            except Exception:
+                                                pass
+                    except Exception as e:
+                        raise ValueError(f"Failed to load PyTorch model: {e}")
+
+                    if model_obj is None:
+                        raise ValueError(
+                            "Could not load model as nn.Module. "
+                            "Make sure the model was saved as a full model "
+                            "(torch.save(model, ...)) and provide a definition file if needed."
+                        )
+
+                    model_obj.eval()
+
+                    # Export to ONNX (default vision input shape 1×3×224×224)
+                    dummy_input = torch.randn(1, 3, 224, 224)
+                    try:
+                        torch.onnx.export(
+                            model_obj,
+                            dummy_input,
+                            onnx_path,
+                            export_params=True,
+                            opset_version=11,
+                            do_constant_folding=True,
+                            input_names=["input"],
+                            output_names=["output"],
+                            dynamic_axes={
+                                "input": {0: "batch_size"},
+                                "output": {0: "batch_size"},
+                            },
+                        )
+                    except Exception as e:
+                        if os.path.exists(onnx_path):
+                            os.remove(onnx_path)
+                        raise ValueError(
+                            f"ONNX export failed (model may need a non-default input shape): {e}"
+                        )
+
+            # ── Step 2: ONNX → TF SavedModel via onnx2tf ────────────────────
+            try:
+                import onnx2tf
+            except ImportError:
+                raise ValueError(
+                    "onnx2tf is not installed. "
+                    "Add to requirements: onnx2tf tensorflow-cpu tensorflowjs sng4onnx"
+                )
+
+            saved_model_dir = os.path.join(ts_cache_dir, "saved_model")
+            os.makedirs(saved_model_dir, exist_ok=True)
+
+            try:
+                onnx2tf.convert(
+                    input_onnx_file_path=onnx_path,
+                    output_folder_path=saved_model_dir,
+                    non_verbose=True,
+                )
+            except Exception as e:
+                raise ValueError(f"onnx2tf ONNX→SavedModel failed: {e}")
+
+            # ── Step 3: TF SavedModel → TF.js via tensorflowjs_converter ─────
+            try:
+                import tensorflowjs as tfjs
+                tfjs.converters.convert_tf_saved_model(
+                    saved_model_dir,
+                    tfjs_dir,
+                )
+            except Exception as e:
+                raise ValueError(f"TF SavedModel → TF.js conversion failed: {e}")
+
+            if not os.path.exists(model_json_path):
+                raise ValueError(
+                    "TF.js conversion completed but model.json was not found in output. "
+                    "The model architecture may not be supported."
+                )
+
+            # ── Step 4: Extract TensorSpace layer configs from ONNX ──────────
+            return _extract_tsp_layers(onnx_path)
+
+        import asyncio
+        loop = asyncio.get_running_loop()
+        tsp_layers = await loop.run_in_executor(None, _convert)
+
+        rel = os.path.relpath(model_json_path, UPLOAD_DIR).replace("\\", "/")
+        return {"url": f"/uploads/{rel}", "tsp_layers": tsp_layers or []}
+

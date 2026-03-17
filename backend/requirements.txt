@@ -27,3 +27,9 @@ seaborn
 codecarbon
 thop
 torch-pruning
+# TensorSpace conversion pipeline: PyTorch → ONNX → TF SavedModel → TF.js
+tensorflow-cpu
+onnx2tf
+sng4onnx
+onnxsim
+tensorflowjs

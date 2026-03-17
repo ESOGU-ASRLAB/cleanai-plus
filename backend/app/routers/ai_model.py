@@ -226,6 +226,34 @@ async def delete_model(
         details={"model_name": model.name},
     )
 
+@router.get("/{model_id}/tensorspace", response_model=dict)
+async def get_tensorspace_url(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """
+    Convert the model (PyTorch → ONNX → TF.js) and return the URL to
+    the TF.js model.json file so TensorSpace can load it directly.
+    The result is cached; subsequent calls return immediately.
+    """
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        result = await model_service.get_tensorspace_model_url(model_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TensorSpace conversion failed: {str(e)}")
+
+
 @router.post("/{model_id}/convert", response_model=AIModelInDB)
 async def convert_model(
     workspace_id: str,
