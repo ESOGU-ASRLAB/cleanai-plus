@@ -1548,9 +1548,6 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Created Model
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
                     {!selectedOptimization && (
                       <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Report
@@ -1586,13 +1583,10 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                           )?.name || opt.model_id}
                         </td>
                       )}
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 max-w-[200px] truncate" title={opt.result?.output_model_name || "-"}>
+                      <td className="px-6 py-4 text-sm text-gray-700 truncate max-w-[300px]" title={opt.result?.output_model_name || "-"}>
                         {opt.result?.output_model_name || (
                           <span className="text-gray-400">-</span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(opt.created_at).toLocaleString()}
                       </td>
                       {!selectedOptimization && (
                         <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
