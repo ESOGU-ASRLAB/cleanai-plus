@@ -113,6 +113,7 @@ const WorkspaceDetailPage = () => {
   const [editingModelName, setEditingModelName] = useState("");
   const [editingModelDescription, setEditingModelDescription] = useState("");
   const [savingModelMeta, setSavingModelMeta] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   // Datasets state
   const [datasets, setDatasets] = useState([]);
@@ -691,9 +692,21 @@ const WorkspaceDetailPage = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
               {workspace.name}
             </h1>
-            <p className="text-gray-600 mb-2">
-              {workspace.description || "No description provided."}
+            <p className="text-gray-600 mb-1">
+              {workspace.description
+                ? descriptionExpanded || workspace.description.length <= 120
+                  ? workspace.description
+                  : workspace.description.slice(0, 120) + "…"
+                : "No description provided."}
             </p>
+            {workspace.description && workspace.description.length > 120 && (
+              <button
+                onClick={() => setDescriptionExpanded((v) => !v)}
+                className="text-xs text-primary-600 hover:text-primary-700 font-medium mb-2"
+              >
+                {descriptionExpanded ? "Show less" : "Show more"}
+              </button>
+            )}
             <p className="text-xs text-gray-400 flex items-center">
               <FiActivity className="mr-1" /> Created on{" "}
               {new Date(workspace.created_at).toLocaleDateString()}
