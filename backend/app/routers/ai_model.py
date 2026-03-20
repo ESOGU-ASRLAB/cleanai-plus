@@ -107,6 +107,32 @@ from pydantic import BaseModel
 class DefinitionUpdate(BaseModel):
     code: str
 
+class ModelMetaUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+@router.patch("/{model_id}", response_model=AIModelInDB)
+async def update_model_meta(
+    workspace_id: str,
+    model_id: str,
+    update: ModelMetaUpdate,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """Update a model's name and/or description."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if str(workspace.owner_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    updated = await model_service.update_model_meta(model_id, update.name, update.description)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return updated
+
 @router.get("/{model_id}/definition", response_model=dict)
 async def get_model_definition(
     workspace_id: str,

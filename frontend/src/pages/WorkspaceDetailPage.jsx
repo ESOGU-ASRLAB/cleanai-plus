@@ -110,6 +110,9 @@ const WorkspaceDetailPage = () => {
   const [isDragUploading, setIsDragUploading] = useState(false);
   const [modelDefinitions, setModelDefinitions] = useState({});
   const [loadingDefinitions, setLoadingDefinitions] = useState({});
+  const [editingModelName, setEditingModelName] = useState("");
+  const [editingModelDescription, setEditingModelDescription] = useState("");
+  const [savingModelMeta, setSavingModelMeta] = useState(false);
 
   // Datasets state
   const [datasets, setDatasets] = useState([]);
@@ -242,6 +245,8 @@ const WorkspaceDetailPage = () => {
     }
 
     setSelectedModel(model);
+    setEditingModelName(model.name || "");
+    setEditingModelDescription(model.description || "");
 
     // If definition not loaded and file exists, fetch it
     if (model.definition_file_path && !modelDefinitions[model._id]) {
@@ -344,6 +349,42 @@ const WorkspaceDetailPage = () => {
         ...prev,
         [selectedModel._id]: value,
       }));
+    }
+  };
+
+  const handleSaveModelMeta = async () => {
+    if (!selectedModel) return;
+    setSavingModelMeta(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/workspaces/${id}/models/${selectedModel._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: editingModelName.trim() || selectedModel.name,
+            description: editingModelDescription,
+          }),
+        },
+      );
+      if (response.ok) {
+        const updated = await response.json();
+        setModels((prev) =>
+          prev.map((m) => (m._id === selectedModel._id ? updated : m)),
+        );
+        setSelectedModel(updated);
+        success("Model updated successfully");
+      } else {
+        errorToast("Failed to update model");
+      }
+    } catch (err) {
+      errorToast("Failed to update model");
+      console.error(err);
+    } finally {
+      setSavingModelMeta(false);
     }
   };
 
@@ -1317,29 +1358,70 @@ const WorkspaceDetailPage = () => {
                 {selectedModel && (
                   <div className="lg:w-1/2 xl:w-5/12 animate-fade-in">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden sticky top-6">
-                      <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
-                        <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                          <FiCode className="text-gray-500" />
-                          Model Definition: {selectedModel.name}
-                        </h4>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={handleSaveDefinition}
-                            className="text-gray-500 hover:text-green-600 p-1.5 rounded-full hover:bg-green-50 transition-colors"
-                            title="Save Definition"
-                          >
-                            <FiSave size={18} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedModel(null);
-                            }}
-                            className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
-                          >
-                            <FiX size={18} />
-                          </button>
+                      <div className="p-4 border-b border-gray-100 bg-gray-50">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          {/* Editable name */}
+                          {isReadonly ? (
+                            <h4 className="font-semibold text-gray-900 text-sm flex items-center gap-2">
+                              <FiCpu className="text-gray-500 flex-shrink-0" />
+                              {selectedModel.name}
+                            </h4>
+                          ) : (
+                            <input
+                              type="text"
+                              value={editingModelName}
+                              onChange={(e) => setEditingModelName(e.target.value)}
+                              className="flex-1 text-sm font-semibold text-gray-900 bg-white border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-400 min-w-0"
+                              placeholder="Model name"
+                            />
+                          )}
+                          <div className="flex items-center space-x-1 flex-shrink-0">
+                            {!isReadonly && (
+                              <button
+                                onClick={handleSaveModelMeta}
+                                disabled={savingModelMeta}
+                                className="text-gray-500 hover:text-green-600 p-1.5 rounded-full hover:bg-green-50 transition-colors disabled:opacity-50"
+                                title="Save name & description"
+                              >
+                                {savingModelMeta ? (
+                                  <div className="animate-spin rounded-full h-[18px] w-[18px] border-b-2 border-green-600" />
+                                ) : (
+                                  <FiSave size={18} />
+                                )}
+                              </button>
+                            )}
+                            <button
+                              onClick={handleSaveDefinition}
+                              className="text-gray-500 hover:text-blue-600 p-1.5 rounded-full hover:bg-blue-50 transition-colors"
+                              title="Save Definition"
+                            >
+                              <FiCode size={18} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedModel(null);
+                              }}
+                              className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                            >
+                              <FiX size={18} />
+                            </button>
+                          </div>
                         </div>
+                        {/* Editable description */}
+                        {isReadonly ? (
+                          selectedModel.description ? (
+                            <p className="text-xs text-gray-500">{selectedModel.description}</p>
+                          ) : null
+                        ) : (
+                          <textarea
+                            value={editingModelDescription}
+                            onChange={(e) => setEditingModelDescription(e.target.value)}
+                            rows={2}
+                            className="w-full text-xs text-gray-600 bg-white border border-gray-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none"
+                            placeholder="Add a description…"
+                          />
+                        )}
                       </div>
 
                       <div className="p-0">

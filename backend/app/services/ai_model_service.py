@@ -190,6 +190,24 @@ class AIModelService:
             print(f"Error updating definition file: {e}")
             return False
 
+    async def update_model_meta(self, model_id: str, name: Optional[str], description: Optional[str]) -> Optional[AIModelInDB]:
+        """Update a model's name and/or description."""
+        if not ObjectId.is_valid(model_id):
+            return None
+        fields: dict = {"updated_at": datetime.utcnow()}
+        if name is not None:
+            fields["name"] = name
+        if description is not None:
+            fields["description"] = description
+        result = await self.models_collection.find_one_and_update(
+            {"_id": ObjectId(model_id)},
+            {"$set": fields},
+            return_document=True,
+        )
+        if result:
+            return AIModelInDB(**result)
+        return None
+
     async def get_model_structure(self, model_id: str) -> Optional[List[dict]]:
         if not ObjectId.is_valid(model_id):
             return None
