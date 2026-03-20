@@ -52,6 +52,17 @@ class OptimizationService:
     async def get_optimization(self, optimization_id: str) -> Optional[Optimization]:
         return await Optimization.get(PydanticObjectId(optimization_id))
 
+    async def delete_optimization(self, optimization_id: str) -> bool:
+        optimization = await self.get_optimization(optimization_id)
+        if not optimization:
+            return False
+        if optimization.status in (OptimizationStatus.PENDING, OptimizationStatus.RUNNING):
+            _optimization_cancelled.add(optimization_id)
+            _optimization_progress.pop(optimization_id, None)
+            _optimization_running.discard(optimization_id)
+        await optimization.delete()
+        return True
+
     def get_cancel_requested(self, optimization_id: str) -> bool:
         return optimization_id in _optimization_cancelled
 

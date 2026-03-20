@@ -53,6 +53,17 @@ class QuantizationService:
     async def get_quantization(self, quantization_id: str) -> Optional[Quantization]:
         return await Quantization.get(PydanticObjectId(quantization_id))
 
+    async def delete_quantization(self, quantization_id: str) -> bool:
+        quantization = await self.get_quantization(quantization_id)
+        if not quantization:
+            return False
+        if quantization.status in (QuantizationStatus.PENDING, QuantizationStatus.RUNNING):
+            _quantization_cancelled.add(quantization_id)
+            _quantization_progress.pop(quantization_id, None)
+            _quantization_running.discard(quantization_id)
+        await quantization.delete()
+        return True
+
     def get_cancel_requested(self, quantization_id: str) -> bool:
         return quantization_id in _quantization_cancelled
 

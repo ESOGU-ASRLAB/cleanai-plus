@@ -25,6 +25,7 @@ import {
   FiFileText,
   FiTarget,
   FiEyeOff,
+  FiTrash2,
 } from "react-icons/fi";
 
 const OPTIMIZATION_STEPS = [
@@ -388,6 +389,32 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
       }
     } catch (err) {
       console.error("Cancel error:", err);
+    }
+  };
+
+  const handleDeleteOptimization = async (optimizationId, e) => {
+    if (e) e.stopPropagation();
+    const confirmed = await showConfirm(
+      "This optimization and all its data will be permanently deleted. This action cannot be undone.",
+      "Delete Optimization",
+      "danger",
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${workspaceId}/optimizations/${optimizationId}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (res.ok || res.status === 204) {
+        setOptimizations((prev) => prev.filter((o) => (o.id || o._id) !== optimizationId));
+        if ((selectedOptimization?.id || selectedOptimization?._id) === optimizationId)
+          setSelectedOptimization(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert(data.detail || "Could not delete optimization.", "Delete Failed", "error");
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
     }
   };
 
@@ -1557,6 +1584,17 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                               <FiStopCircle size={16} />
                             </button>
                           )}
+                          {(opt.status === "completed" ||
+                            opt.status === "failed" ||
+                            opt.status === "cancelled") && (
+                            <button
+                              onClick={(e) => handleDeleteOptimization(opt.id, e)}
+                              title="Delete Optimization"
+                              className="text-gray-400 hover:text-red-600 transition-colors"
+                            >
+                              <FiTrash2 size={16} />
+                            </button>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1645,6 +1683,19 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                         className="text-gray-400 hover:text-primary-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
                       >
                         <FiFileText size={18} />
+                      </button>
+                    )}
+                    {(selectedOptimization.status === "completed" ||
+                      selectedOptimization.status === "failed" ||
+                      selectedOptimization.status === "cancelled") && (
+                      <button
+                        onClick={(e) =>
+                          handleDeleteOptimization(selectedOptimization.id, e)
+                        }
+                        title="Delete Optimization"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        <FiTrash2 size={18} />
                       </button>
                     )}
                     <button

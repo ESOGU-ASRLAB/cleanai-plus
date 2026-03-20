@@ -72,6 +72,23 @@ async def cancel_quantization(
     return {"message": "Cancellation requested.", "quantization_id": quantization_id}
 
 
+@router.delete("/{quantization_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_quantization(
+    workspace_id: str,
+    quantization_id: str,
+    current_user: User = Depends(get_current_user),
+    service: QuantizationService = Depends(get_quantization_service),
+):
+    """Delete a quantization record."""
+    quant = await service.get_quantization(quantization_id)
+    if not quant or str(quant.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Quantization not found")
+
+    deleted = await service.delete_quantization(quantization_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Could not delete quantization.")
+
+
 @router.get("/{quantization_id}/progress")
 async def get_quantization_progress(
     workspace_id: str,

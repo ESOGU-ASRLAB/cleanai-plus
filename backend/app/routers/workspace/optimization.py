@@ -89,6 +89,23 @@ async def cancel_optimization(
     return {"message": "Cancellation requested.", "optimization_id": optimization_id}
 
 
+@router.delete("/{optimization_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_optimization(
+    workspace_id: str,
+    optimization_id: str,
+    current_user: User = Depends(get_current_user),
+    service: OptimizationService = Depends(get_optimization_service),
+):
+    """Delete an optimization record."""
+    opt = await service.get_optimization(optimization_id)
+    if not opt or str(opt.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Optimization not found")
+
+    deleted = await service.delete_optimization(optimization_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Could not delete optimization.")
+
+
 @router.get("/{optimization_id}/progress")
 async def get_optimization_progress(
     workspace_id: str,
