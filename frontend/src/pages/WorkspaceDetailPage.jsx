@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { MainLayout } from "../components/layout";
 import { Button, CodeEditor, WindowedCodeEditor } from "../components/common";
+import { useTour } from "../context/TourContext";
 import PreprocessingTab from "../components/workspace/PreprocessingTab";
 import ExecutionTab from "../components/workspace/ExecutionTab";
 import NetworkVisualizationTab from "../components/workspace/NetworkVisualizationTab";
@@ -47,6 +48,7 @@ const WorkspaceDetailPage = () => {
   const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { startTour, registerTour } = useTour();
 
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -129,6 +131,96 @@ const WorkspaceDetailPage = () => {
     co2_saved: 0,
   });
   const [statsLoading, setStatsLoading] = useState(false);
+
+  // Workspace tour for first-time visitors
+  useEffect(() => {
+    if (!user || !workspace) return;
+
+    const buildSteps = () => [
+      {
+        target: null,
+        title: "Welcome to Your Workspace!",
+        content:
+          "This is your workspace — an isolated environment to manage AI models, datasets, training runs, and network optimization. Let's explore each section.",
+        position: "center",
+      },
+      {
+        target: "tab-overview",
+        title: "Overview",
+        content:
+          "The Overview tab shows workspace statistics (models, datasets, executions, CO₂ emissions) and a live activity feed of recent actions.",
+        position: "bottom",
+      },
+      {
+        target: "stats-section",
+        title: "Workspace Stats",
+        content:
+          "Track your workspace at a glance: total models uploaded, datasets added, execution runs completed, and cumulative CO₂ emissions produced.",
+        position: "bottom",
+        onActivate: () => setActiveTab("overview"),
+      },
+      {
+        target: "tab-models",
+        title: "Models",
+        content:
+          "Upload and manage your PyTorch (.pt/.pth), ONNX, or TorchScript models. You can drag-and-drop files directly, view model architecture code, and mark favorites.",
+        position: "bottom",
+      },
+      {
+        target: "tab-datasets",
+        title: "Datasets",
+        content:
+          "Add training and evaluation datasets. Supports image classification, object detection, and tabular data. Browse sample images and class labels inline.",
+        position: "bottom",
+      },
+      {
+        target: "tab-preprocessing",
+        title: "Preprocessing",
+        content:
+          "Define data preprocessing pipelines using a drag-and-drop visual builder (Resize, Normalize, Augment, etc.) or write raw Python torchvision transforms code.",
+        position: "bottom",
+      },
+      {
+        target: "tab-executions",
+        title: "Executions",
+        content:
+          "Run your models against datasets using a 5-step wizard. Monitor live progress, compare results side by side, inspect per-class accuracy, and download PDF reports.",
+        position: "bottom",
+      },
+      {
+        target: "tab-optimization",
+        title: "Network Optimization",
+        content:
+          "Reduce model size and boost inference speed with Pruning (Taylor, WANDA, LAMP and more) and Quantization (Dynamic, Static PTQ, QAT). Monitor optimization progress in real time.",
+        position: "bottom",
+      },
+      {
+        target: "tab-visualization",
+        title: "Network Visualization",
+        content:
+          "Visualize your model's layer architecture in an interactive 2D graph or a full 3D view. Inspect layer types, shapes, parameter counts, and connections.",
+        position: "bottom",
+      },
+      {
+        target: "tab-settings",
+        title: "Settings",
+        content:
+          "Update the workspace name and description, toggle its visibility between Private and Public, or permanently delete it from the Danger Zone.",
+        position: "bottom",
+      },
+    ];
+
+    // Register so navbar button can trigger any time
+    registerTour("workspace", buildSteps);
+
+    const userId = user._id ?? user.id;
+    const tourKey = `tour_workspace_done_${userId}`;
+    if (!localStorage.getItem(tourKey)) {
+      localStorage.setItem(tourKey, "1");
+      const t = setTimeout(() => startTour(buildSteps()), 700);
+      return () => clearTimeout(t);
+    }
+  }, [user, workspace, startTour, registerTour]);
 
   const toggleSamples = (datasetId) => {
     setExpandedSamples((prev) => ({
@@ -580,6 +672,7 @@ const WorkspaceDetailPage = () => {
       <div className="border-b border-gray-200 mb-8">
         <nav className="-mb-px flex space-x-8">
           <button
+            data-tour="tab-overview"
             onClick={() => setActiveTab("overview")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -593,6 +686,7 @@ const WorkspaceDetailPage = () => {
             <FiActivity className="mr-2" /> Overview
           </button>
           <button
+            data-tour="tab-models"
             onClick={() => setActiveTab("models")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -606,6 +700,7 @@ const WorkspaceDetailPage = () => {
             <FiCpu className="mr-2" /> Models
           </button>
           <button
+            data-tour="tab-datasets"
             onClick={() => setActiveTab("datasets")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -619,6 +714,7 @@ const WorkspaceDetailPage = () => {
             <FiDatabase className="mr-2" /> Datasets
           </button>
           <button
+            data-tour="tab-preprocessing"
             onClick={() => setActiveTab("preprocessing")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -632,6 +728,7 @@ const WorkspaceDetailPage = () => {
             <FiLayers className="mr-2" /> Preprocessing
           </button>
           <button
+            data-tour="tab-executions"
             onClick={() => setActiveTab("executions")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -645,6 +742,7 @@ const WorkspaceDetailPage = () => {
             <FiTerminal className="mr-2" /> Executions
           </button>
           <button
+            data-tour="tab-optimization"
             onClick={() => setActiveTab("optimization")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -658,6 +756,7 @@ const WorkspaceDetailPage = () => {
             <FiZap className="mr-2" /> Network Optimization
           </button>
           <button
+            data-tour="tab-visualization"
             onClick={() => setActiveTab("visualization")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -671,6 +770,7 @@ const WorkspaceDetailPage = () => {
             <FiShare2 className="mr-2" /> Network Visualization
           </button>
           <button
+            data-tour="tab-settings"
             onClick={() => setActiveTab("settings")}
             className={`
               pb-4 px-1 border-b-2 font-medium text-sm flex items-center
@@ -701,7 +801,7 @@ const WorkspaceDetailPage = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div data-tour="stats-section" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
               <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-gray-500">Models</p>

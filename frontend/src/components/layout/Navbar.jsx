@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { useTour } from "../../context/TourContext";
 import { Button } from "../common";
-import { FiLogOut, FiUser, FiSearch } from "react-icons/fi";
+import { FiLogOut, FiUser, FiSearch, FiHelpCircle } from "react-icons/fi";
 import workspaceService from "../../services/workspaceService";
 
 const Navbar = () => {
   const { isAuthenticated, logout, token, user } = useAuth();
+  const { startNamedTour } = useTour();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -48,6 +51,12 @@ const Navbar = () => {
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleStartTour = () => {
+    const isWorkspaceDetail =
+      /^\/workspaces\/[^/]+$/.test(location.pathname);
+    startNamedTour(isWorkspaceDetail ? "workspace" : "dashboard");
   };
 
   let username = "";
@@ -167,6 +176,14 @@ const Navbar = () => {
                   )}
                   <span>{username}</span>
                 </Link>
+                <div className="h-6 w-px bg-gray-200"></div>
+                <button
+                  onClick={handleStartTour}
+                  title="Start tour"
+                  className="text-gray-500 hover:text-primary-600 transition-colors flex items-center text-sm font-medium"
+                >
+                  <FiHelpCircle size={18} />
+                </button>
                 <div className="h-6 w-px bg-gray-200"></div>
                 <button
                   onClick={handleLogout}

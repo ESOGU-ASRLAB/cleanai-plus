@@ -6,3 +6,4 @@ export { default as WindowedCodeEditor } from "./WindowedCodeEditor";
 export { Stepper } from "./Stepper";
 export { Toast } from "./Toast";
 export { AlertModal } from "./AlertModal";
+export { default as TourOverlay } from "./TourOverlay";

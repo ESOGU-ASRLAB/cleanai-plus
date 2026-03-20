@@ -8,6 +8,8 @@ import {
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { AlertProvider } from "./context/AlertContext";
+import { TourProvider } from "./context/TourContext";
+import TourOverlay from "./components/common/TourOverlay";
 import RegisterPage from "./pages/RegisterPage";
 import LoginPage from "./pages/LoginPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
@@ -58,8 +60,9 @@ function App() {
     <Router>
       <AlertProvider>
         <ToastProvider>
-          <AuthProvider>
-            <AnimatedRoutes>
+          <TourProvider>
+            <AuthProvider>
+              <AnimatedRoutes>
               <Route path="/" element={<HomeRouter />} />
               <Route
                 path="/register"
@@ -134,7 +137,9 @@ function App() {
                 }
               />
             </AnimatedRoutes>
-          </AuthProvider>
+            </AuthProvider>
+            <TourOverlay />
+          </TourProvider>
         </ToastProvider>
       </AlertProvider>
     </Router>

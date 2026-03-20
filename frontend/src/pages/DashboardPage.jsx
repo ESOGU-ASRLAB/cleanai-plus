@@ -1,15 +1,60 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MainLayout } from "../components/layout";
 import WorkspaceList from "../components/workspace/WorkspaceList";
 import { Button } from "../components/common";
 import { FiPlus, FiAlertCircle, FiX } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTour } from "../context/TourContext";
+
+const DASHBOARD_TOUR_STEPS = [
+  {
+    target: null,
+    title: "Welcome to CleanAI Plus!",
+    content:
+      "Let's take a quick tour so you can get the most out of the platform. We'll walk through the key features in just a moment.",
+    position: "center",
+  },
+  {
+    target: "new-workspace-btn",
+    title: "Create a Workspace",
+    content:
+      "A workspace is your isolated project environment. Click \"New Workspace\" to create one and start organizing your AI models and datasets.",
+    position: "bottom",
+  },
+  {
+    target: "workspace-list-section",
+    title: "Your Workspaces",
+    content:
+      "All your workspaces appear here as cards. Click any workspace to open it and explore its models, datasets, execution runs, and optimization tools.",
+    position: "top",
+  },
+];
 
 const DashboardPage = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { startTour, endTour, registerTour } = useTour();
   const [showVerificationAlert, setShowVerificationAlert] = useState(true);
+
+  // Register tour so navbar button can trigger it any time
+  useEffect(() => {
+    registerTour("dashboard", () => DASHBOARD_TOUR_STEPS);
+  }, [registerTour]);
+
+  // Start tour for users who haven't seen it yet
+  useEffect(() => {
+    if (!user) return;
+    const userId = user._id ?? user.id;
+    const tourKey = `tour_dashboard_done_${userId}`;
+    if (!localStorage.getItem(tourKey)) {
+      // Mark as done immediately so it only shows once per user
+      localStorage.setItem(tourKey, "1");
+      // Small delay to let the page fully render
+      const t = setTimeout(() => startTour(DASHBOARD_TOUR_STEPS), 600);
+      return () => clearTimeout(t);
+    }
+  }, [user, startTour]);
 
   const handleVerifyClick = async () => {
     try {
@@ -80,14 +125,16 @@ const DashboardPage = () => {
               Manage your models and experiments
             </p>
           </div>
-          <Link to="/workspaces/new">
+          <Link to="/workspaces/new" data-tour="new-workspace-btn">
             <Button className="flex items-center">
               <FiPlus className="mr-2" /> New Workspace
             </Button>
           </Link>
         </div>
 
-        <WorkspaceList />
+        <div data-tour="workspace-list-section">
+          <WorkspaceList />
+        </div>
       </div>
     </MainLayout>
   );
