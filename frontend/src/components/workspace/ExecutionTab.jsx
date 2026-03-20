@@ -829,7 +829,7 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                       </>
                     )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
+                      {selectedExecution ? "Model" : "Date"}
                     </th>
                     {!selectedExecution && (
                       <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -907,7 +907,9 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                           </>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(exec.created_at).toLocaleString()}
+                          {selectedExecution
+                            ? models.find((m) => (m.id || m._id) === exec.model_id)?.name || exec.model_id
+                            : new Date(exec.created_at).toLocaleString()}
                         </td>
                         {!selectedExecution && (
                           <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
