@@ -644,12 +644,11 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
     }
   };
 
-  if (showCompare && selectedForCompare.length === 2) {
+  if (showCompare && selectedForCompare.length >= 2) {
     return (
       <ExecutionCompare
         workspace={workspace}
-        execution1Id={selectedForCompare[0]}
-        execution2Id={selectedForCompare[1]}
+        executionIds={selectedForCompare}
         models={models}
         datasets={datasets}
         preprocessings={preprocessings}
@@ -743,16 +742,16 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                 <>
                   <Button
                     onClick={() => {
-                      if (selectedForCompare.length === 2) {
+                      if (selectedForCompare.length >= 2) {
                         setShowCompare(true);
                       } else {
-                        showAlert("Please select exactly 2 executions to compare.", "Selection Required", "info");
+                        showAlert("Please select 2 to 4 executions to compare.", "Selection Required", "info");
                       }
                     }}
-                    disabled={selectedForCompare.length !== 2}
+                    disabled={selectedForCompare.length < 2}
                     className="flex items-center bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-500"
                   >
-                    <FiColumns className="mr-2" /> Compare Selected ({selectedForCompare.length}/2)
+                    <FiColumns className="mr-2" /> Compare Selected ({selectedForCompare.length}/4)
                   </Button>
                   <Button
                     onClick={() => {
@@ -865,7 +864,7 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                               checked={selectedForCompare.includes(exec.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  if (selectedForCompare.length < 2) {
+                                  if (selectedForCompare.length < 4) {
                                     setSelectedForCompare([...selectedForCompare, exec.id]);
                                   }
                                 } else {
