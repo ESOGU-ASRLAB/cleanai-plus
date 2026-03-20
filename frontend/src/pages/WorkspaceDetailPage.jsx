@@ -35,6 +35,9 @@ import {
   FiPlus,
   FiZap,
   FiTrash2,
+  FiDownload,
+  FiEyeOff,
+  FiStar,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -91,6 +94,9 @@ const WorkspaceDetailPage = () => {
   // Models state
   const [models, setModels] = useState([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [showOptimizedModels, setShowOptimizedModels] = useState(
+    () => localStorage.getItem("showOptimizedModels") === "true",
+  );
   const [selectedModel, setSelectedModel] = useState(null);
   const [deleteModelId, setDeleteModelId] = useState(null);
   const [deletingModel, setDeletingModel] = useState(false);
@@ -922,13 +928,32 @@ const WorkspaceDetailPage = () => {
                   Create, fine-tune, and manage your models
                 </p>
               </div>
-              {!isReadonly && (
-                <Link to={`/workspaces/${id}/models/new`}>
-                  <Button className="flex items-center">
-                    <FiPlus className="mr-2" /> Create Model
-                  </Button>
-                </Link>
-              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showOptimizedModels;
+                    setShowOptimizedModels(next);
+                    localStorage.setItem("showOptimizedModels", String(next));
+                  }}
+                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full border transition-colors ${
+                    showOptimizedModels
+                      ? "bg-green-50 border-green-300 text-green-700 hover:bg-green-100"
+                      : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+                  }`}
+                  title={showOptimizedModels ? "Hide optimized models" : "Show optimized models"}
+                >
+                  <FiZap size={13} />
+                  {showOptimizedModels ? "Hide Optimized" : "Show Optimized"}
+                </button>
+                {!isReadonly && (
+                  <Link to={`/workspaces/${id}/models/new`}>
+                    <Button className="flex items-center">
+                      <FiPlus className="mr-2" /> Create Model
+                    </Button>
+                  </Link>
+                )}
+              </div>
             </div>
 
             {modelsLoading ? (
@@ -950,7 +975,9 @@ const WorkspaceDetailPage = () => {
                         : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
                     }`}
                   >
-                    {models.map((model) => (
+                    {models
+                      .filter((model) => showOptimizedModels || !model.is_optimized)
+                      .map((model) => (
                       <div
                         key={model._id}
                         onClick={() => handleModelSelect(model)}
@@ -967,19 +994,87 @@ const WorkspaceDetailPage = () => {
                           >
                             {model.name}
                           </h4>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteModelId(model._id);
-                            }}
-                            title="Delete model"
-                            className={`ml-2 flex-shrink-0 text-gray-300 hover:text-red-500 focus:outline-none transition-colors ${
-                              isReadonly ? "invisible" : ""
-                            }`}
-                          >
-                            <FiTrash2 size={15} />
-                          </button>
+                          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const res = await fetch(
+                                    `http://localhost:8000/api/workspaces/${id}/models/${model._id}/favorite`,
+                                    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  if (res.ok) {
+                                    const updated = await res.json();
+                                    setModels((prev) =>
+                                      prev.map((m) => (m._id === updated._id ? { ...m, is_favorite: updated.is_favorite } : m)),
+                                    );
+                                  }
+                                } catch (err) {
+                                  console.error("Favorite error:", err);
+                                }
+                              }}
+                              title={model.is_favorite ? "Remove from favorites" : "Add to favorites"}
+                              className={`focus:outline-none transition-colors ${
+                                model.is_favorite
+                                  ? "text-yellow-400 hover:text-yellow-500"
+                                  : "text-gray-300 hover:text-yellow-400"
+                              }`}
+                            >
+                              <FiStar size={15} fill={model.is_favorite ? "currentColor" : "none"} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const res = await fetch(
+                                    `http://localhost:8000/api/workspaces/${id}/models/${model._id}/download`,
+                                    { headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  if (res.ok) {
+                                    const blob = await res.blob();
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    const cd = res.headers.get("content-disposition");
+                                    let fname = model.name;
+                                    if (cd) {
+                                      const match = cd.match(/filename[^;=\n]*=(['"]?)([^'"\n;]*)\1/);
+                                      if (match?.[2]) fname = match[2].trim();
+                                    } else if (model.file_path) {
+                                      const ext = model.file_path.split(".").pop();
+                                      if (ext) fname = `${model.name}.${ext}`;
+                                    }
+                                    a.download = fname;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    window.URL.revokeObjectURL(url);
+                                    a.remove();
+                                  }
+                                } catch (err) {
+                                  console.error("Download error:", err);
+                                }
+                              }}
+                              title="Download model file"
+                              className="text-gray-300 hover:text-primary-500 focus:outline-none transition-colors"
+                            >
+                              <FiDownload size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteModelId(model._id);
+                              }}
+                              title="Delete model"
+                              className={`text-gray-300 hover:text-red-500 focus:outline-none transition-colors ${
+                                isReadonly ? "invisible" : ""
+                              }`}
+                            >
+                              <FiTrash2 size={15} />
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap mb-2">
                           <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">

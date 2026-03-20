@@ -1,5 +1,7 @@
+import os
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.mongodb import get_database
@@ -225,6 +227,56 @@ async def delete_model(
         action="model_deleted",
         details={"model_name": model.name},
     )
+
+@router.post("/{model_id}/favorite", response_model=AIModelInDB)
+async def toggle_favorite(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """Toggle the favorite status of a model."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    model = await model_service.toggle_favorite(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
+
+
+@router.get("/{model_id}/download")
+async def download_model(
+    workspace_id: str,
+    model_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    model_service: AIModelService = Depends(get_model_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+):
+    """Download the model file."""
+    workspace = await workspace_service.get_workspace_by_id(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if str(workspace.owner_id) != str(current_user.id) and not workspace.is_public:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    model = await model_service.get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not model.file_path or not os.path.exists(model.file_path):
+        raise HTTPException(status_code=404, detail="Model file not found on disk")
+
+    filename = os.path.basename(model.file_path)
+    return FileResponse(
+        path=model.file_path,
+        filename=filename,
+        media_type="application/octet-stream",
+    )
+
 
 @router.get("/{model_id}/tensorspace", response_model=dict)
 async def get_tensorspace_url(

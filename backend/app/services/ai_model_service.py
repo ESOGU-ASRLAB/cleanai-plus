@@ -91,6 +91,21 @@ class AIModelService:
             return AIModelInDB(**doc)
         return None
 
+    async def toggle_favorite(self, model_id: str) -> Optional[AIModelInDB]:
+        """Toggle the is_favorite flag of a model."""
+        if not ObjectId.is_valid(model_id):
+            return None
+        doc = await self.models_collection.find_one({"_id": ObjectId(model_id)})
+        if not doc:
+            return None
+        new_value = not doc.get("is_favorite", False)
+        await self.models_collection.update_one(
+            {"_id": ObjectId(model_id)},
+            {"$set": {"is_favorite": new_value, "updated_at": datetime.utcnow()}},
+        )
+        doc["is_favorite"] = new_value
+        return AIModelInDB(**doc)
+
     async def delete_model(self, model_id: str) -> bool:
         """Delete a model: removes files from disk and document from DB."""
         if not ObjectId.is_valid(model_id):

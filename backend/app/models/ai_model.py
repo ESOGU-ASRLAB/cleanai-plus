@@ -30,6 +30,7 @@ class AIModelInDB(AIModelBase):
     file_size_bytes: int
     definition_file_path: Optional[str] = None
     is_optimized: bool = False
+    is_favorite: bool = False
     original_model_id: Optional[PyObjectId] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
