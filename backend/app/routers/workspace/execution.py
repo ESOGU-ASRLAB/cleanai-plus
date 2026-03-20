@@ -95,6 +95,22 @@ async def cancel_execution(
         )
     return {"message": "Cancellation requested.", "execution_id": execution_id}
 
+@router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_execution(
+    workspace_id: str,
+    execution_id: str,
+    current_user: User = Depends(get_current_user),
+    service: ExecutionService = Depends(get_execution_service),
+):
+    """Delete an execution record."""
+    exec_obj = await service.get_execution(execution_id)
+    if not exec_obj or str(exec_obj.workspace_id) != workspace_id:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    deleted = await service.delete_execution(execution_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Could not delete execution.")
+
 @router.get("/compare", response_model=ExecutionComparisonResponse)
 async def compare_executions(
     workspace_id: str,

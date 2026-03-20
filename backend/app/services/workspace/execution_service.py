@@ -873,6 +873,17 @@ class ExecutionService:
     async def get_executions(self, workspace_id: str) -> List[Execution]:
         return await Execution.find(Execution.workspace_id == PydanticObjectId(workspace_id)).sort(-Execution.created_at).to_list()
 
+    async def delete_execution(self, execution_id: str) -> bool:
+        execution = await self.get_execution(execution_id)
+        if not execution:
+            return False
+        # Cancel active thread if running
+        if execution.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+            _execution_cancelled.add(execution_id)
+            _execution_progress.pop(execution_id, None)
+        await execution.delete()
+        return True
+
     async def get_execution(self, execution_id: str) -> Optional[Execution]:
         return await Execution.get(PydanticObjectId(execution_id))
 
