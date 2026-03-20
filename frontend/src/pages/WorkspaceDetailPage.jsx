@@ -38,6 +38,7 @@ import {
   FiDownload,
   FiEyeOff,
   FiStar,
+  FiUpload,
 } from "react-icons/fi";
 
 const WorkspaceDetailPage = () => {
@@ -103,6 +104,8 @@ const WorkspaceDetailPage = () => {
   const [selectedModel, setSelectedModel] = useState(null);
   const [deleteModelId, setDeleteModelId] = useState(null);
   const [deletingModel, setDeletingModel] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isDragUploading, setIsDragUploading] = useState(false);
   const [modelDefinitions, setModelDefinitions] = useState({});
   const [loadingDefinitions, setLoadingDefinitions] = useState({});
 
@@ -169,6 +172,45 @@ const WorkspaceDetailPage = () => {
       } finally {
         setLoadingDefinitions((prev) => ({ ...prev, [model._id]: false }));
       }
+    }
+  };
+
+  const handleModelDrop = async (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (isReadonly) return;
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const allowedExts = [".pt", ".pth", ".pkl"];
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (!allowedExts.includes(ext)) {
+      errorToast(`Unsupported file type "${ext}". For full_model format, allowed extensions are: .pt, .pth, .pkl`);
+      return;
+    }
+    const modelName = file.name.substring(0, file.name.lastIndexOf(".")) || file.name;
+    const formData = new FormData();
+    formData.append("name", modelName);
+    formData.append("format", "full_model");
+    formData.append("file", file);
+    setIsDragUploading(true);
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/workspaces/${id}/models/`,
+        { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData },
+      );
+      if (res.ok) {
+        const newModel = await res.json();
+        setModels((prev) => [newModel, ...prev]);
+        success(`"${modelName}" uploaded successfully`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        errorToast(data.detail || "Upload failed");
+      }
+    } catch (err) {
+      console.error("Model upload error:", err);
+      errorToast("Upload failed");
+    } finally {
+      setIsDragUploading(false);
     }
   };
 
@@ -923,7 +965,29 @@ const WorkspaceDetailPage = () => {
         )}
 
         {activeTab === "models" && (
-          <div className="animate-fade-in space-y-6">
+          <div
+            className="animate-fade-in space-y-6 relative"
+            onDragOver={(e) => { e.preventDefault(); if (!isReadonly) setIsDragOver(true); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false); }}
+            onDrop={handleModelDrop}
+          >
+            {isDragOver && !isReadonly && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-primary-400 bg-primary-50/80 pointer-events-none">
+                <div className="flex flex-col items-center gap-3 text-primary-600">
+                  <FiUpload size={40} />
+                  <p className="text-base font-semibold">Drop to upload as full_model</p>
+                  <p className="text-xs text-primary-500">Supported: .pt, .pth, .pkl</p>
+                </div>
+              </div>
+            )}
+            {isDragUploading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/70 pointer-events-none">
+                <div className="flex flex-col items-center gap-3 text-primary-600">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600" />
+                  <p className="text-sm font-medium">Uploading model...</p>
+                </div>
+              </div>
+            )}
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-lg font-medium text-gray-900">Models</h2>
@@ -1219,9 +1283,14 @@ const WorkspaceDetailPage = () => {
                 <h3 className="text-lg font-medium text-gray-900">
                   No models yet
                 </h3>
-                <p className="text-gray-500 mb-6">
+                <p className="text-gray-500 mb-2">
                   Create or fine-tune a model in this workspace.
                 </p>
+                {!isReadonly && (
+                  <p className="text-sm text-gray-400 mb-6">
+                    You can also drag & drop a <code>.pt</code>, <code>.pth</code>, or <code>.pkl</code> file here to upload directly.
+                  </p>
+                )}
                 <Link to={`/workspaces/${id}/models/new`}>
                   <Button>Create Model</Button>
                 </Link>
