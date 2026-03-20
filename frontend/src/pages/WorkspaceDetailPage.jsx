@@ -97,6 +97,9 @@ const WorkspaceDetailPage = () => {
   const [showOptimizedModels, setShowOptimizedModels] = useState(
     () => localStorage.getItem("showOptimizedModels") === "true",
   );
+  const [showOnlyFavoriteModels, setShowOnlyFavoriteModels] = useState(
+    () => localStorage.getItem("showOnlyFavoriteModels") === "true",
+  );
   const [selectedModel, setSelectedModel] = useState(null);
   const [deleteModelId, setDeleteModelId] = useState(null);
   const [deletingModel, setDeletingModel] = useState(false);
@@ -932,6 +935,23 @@ const WorkspaceDetailPage = () => {
                 <button
                   type="button"
                   onClick={() => {
+                    const next = !showOnlyFavoriteModels;
+                    setShowOnlyFavoriteModels(next);
+                    localStorage.setItem("showOnlyFavoriteModels", String(next));
+                  }}
+                  className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full border transition-colors ${
+                    showOnlyFavoriteModels
+                      ? "bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100"
+                      : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+                  }`}
+                  title={showOnlyFavoriteModels ? "Show all models" : "Show favorites only"}
+                >
+                  <FiStar size={13} fill={showOnlyFavoriteModels ? "currentColor" : "none"} />
+                  Favorites
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     const next = !showOptimizedModels;
                     setShowOptimizedModels(next);
                     localStorage.setItem("showOptimizedModels", String(next));
@@ -977,6 +997,7 @@ const WorkspaceDetailPage = () => {
                   >
                     {models
                       .filter((model) => showOptimizedModels || !model.is_optimized)
+                      .filter((model) => !showOnlyFavoriteModels || model.is_favorite)
                       .map((model) => (
                       <div
                         key={model._id}

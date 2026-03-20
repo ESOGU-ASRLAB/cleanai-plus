@@ -22,6 +22,8 @@ import {
   FiChevronRight,
   FiColumns,
   FiTrash2,
+  FiStar,
+  FiZap,
 } from "react-icons/fi";
 
 const EXECUTION_STEPS = [
@@ -62,6 +64,10 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
   const [models, setModels] = useState([]);
   const [datasets, setDatasets] = useState([]);
   const [preprocessings, setPreprocessings] = useState([]);
+
+  // Model step filters
+  const [modelFilterFavorites, setModelFilterFavorites] = useState(false);
+  const [modelFilterHideOptimized, setModelFilterHideOptimized] = useState(false);
 
   useEffect(() => {
     fetchExecutions();
@@ -307,8 +313,38 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
     switch (activeStep) {
       case 1:
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {models.map((model) => (
+          <div>
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setModelFilterFavorites((v) => !v)}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  modelFilterFavorites
+                    ? "bg-yellow-50 border-yellow-300 text-yellow-700"
+                    : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                <FiStar size={12} fill={modelFilterFavorites ? "currentColor" : "none"} />
+                Favorites Only
+              </button>
+              <button
+                type="button"
+                onClick={() => setModelFilterHideOptimized((v) => !v)}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  modelFilterHideOptimized
+                    ? "bg-green-50 border-green-300 text-green-700"
+                    : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                <FiZap size={12} />
+                {modelFilterHideOptimized ? "Showing Original Only" : "Hide Optimized"}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {models
+              .filter((m) => !modelFilterFavorites || m.is_favorite)
+              .filter((m) => !modelFilterHideOptimized || !m.is_optimized)
+              .map((model) => (
               <div
                 key={model._id}
                 onClick={() => setSelectedModel(model)}
@@ -322,11 +358,17 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                   <div className="p-2 bg-blue-100 rounded text-blue-600">
                     <FiCpu />
                   </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900">{model.name}</h4>
-                    <span className="text-xs text-gray-500">
-                      {model.format}
-                    </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h4 className="font-medium text-gray-900 truncate">{model.name}</h4>
+                      {model.is_favorite && <FiStar size={11} className="text-yellow-400 flex-shrink-0" fill="currentColor" />}
+                      {model.is_optimized && (
+                        <span className="inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          Optimized
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">{model.format}</span>
                   </div>
                 </div>
                 <p className="text-sm text-gray-500 line-clamp-2">
@@ -334,6 +376,7 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                 </p>
               </div>
             ))}
+            </div>
           </div>
         );
       case 2:

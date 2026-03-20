@@ -26,6 +26,7 @@ import {
   FiTarget,
   FiEyeOff,
   FiTrash2,
+  FiStar,
 } from "react-icons/fi";
 
 const QUANTIZATION_STEPS = [
@@ -107,6 +108,9 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
 
   // Live progress map for running/pending quantizations: { [id]: { progress, message } }
   const [quantProgress, setQuantProgress] = useState({});
+
+  const [modelFilterFavorites, setModelFilterFavorites] = useState(false);
+  const [modelFilterHideOptimized, setModelFilterHideOptimized] = useState(false);
 
   // Resource lists
   const [models, setModels] = useState([]);
@@ -348,6 +352,32 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
         <span className="font-medium">full_model, state_dict, safetensors</span>
         ) are supported. ONNX and TorchScript models cannot be pruned.
       </p>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setModelFilterFavorites((v) => !v)}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+            modelFilterFavorites
+              ? "bg-yellow-50 border-yellow-300 text-yellow-700"
+              : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          <FiStar size={12} fill={modelFilterFavorites ? "currentColor" : "none"} />
+          Favorites Only
+        </button>
+        <button
+          type="button"
+          onClick={() => setModelFilterHideOptimized((v) => !v)}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+            modelFilterHideOptimized
+              ? "bg-green-50 border-green-300 text-green-700"
+              : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          <FiZap size={12} />
+          {modelFilterHideOptimized ? "Showing Original Only" : "Hide Optimized"}
+        </button>
+      </div>
       {models.length === 0 ? (
         <div className="text-center py-10 text-gray-400 border border-dashed border-gray-300 rounded-lg">
           <FiCpu className="mx-auto mb-2 h-8 w-8" />
@@ -355,7 +385,10 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {models.map((model) => {
+          {models
+            .filter((m) => !modelFilterFavorites || m.is_favorite)
+            .filter((m) => !modelFilterHideOptimized || !m.is_optimized)
+            .map((model) => {
             const unsupported = UNSUPPORTED_FORMATS.includes(
               model.format?.toLowerCase(),
             );
@@ -381,6 +414,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                       <h4 className="font-medium text-gray-900 truncate">
                         {model.name}
                       </h4>
+                      {model.is_favorite && <FiStar size={11} className="text-yellow-400 flex-shrink-0" fill="currentColor" />}
                       {model.is_optimized && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
                           Optimized
