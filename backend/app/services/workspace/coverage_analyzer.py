@@ -181,10 +181,10 @@ class CoverageAnalyzer:
                 
                 # Compute coverage based on selected metric
                 if metric == 'normalized_mean':
-                    # Average activation normalized by global max
-                    mean_act = stats['sum'] / stats['count']
+                    # Average absolute activation normalized by per-channel max
+                    mean_act = stats['sum_abs'] / stats['count']
                     max_act = stats['max']
-                    coverage = mean_act / (max_act.max() + 1e-8)
+                    coverage = mean_act / (max_act + 1e-8)
                     coverage = coverage.clamp(0, 1)
                 
                 elif metric == 'frequency':
