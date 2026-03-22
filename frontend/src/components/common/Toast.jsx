@@ -5,6 +5,7 @@ import {
   FiAlertCircle,
   FiInfo,
   FiAlertTriangle,
+  FiLoader,
 } from "react-icons/fi";
 
 const icons = {
@@ -12,6 +13,7 @@ const icons = {
   error: <FiAlertCircle className="w-5 h-5" />,
   info: <FiInfo className="w-5 h-5" />,
   warning: <FiAlertTriangle className="w-5 h-5" />,
+  loading: <FiLoader className="w-5 h-5 animate-spin" />,
 };
 
 const colors = {
@@ -19,6 +21,7 @@ const colors = {
   error: "bg-white text-gray-800 border-accent-500",
   info: "bg-white text-gray-800 border-primary-500",
   warning: "bg-white text-gray-800 border-yellow-500",
+  loading: "bg-white text-gray-800 border-primary-400",
 };
 
 const iconColors = {
@@ -26,6 +29,7 @@ const iconColors = {
   error: "text-accent-500 bg-accent-50",
   info: "text-primary-500 bg-primary-50",
   warning: "text-yellow-500 bg-yellow-50",
+  loading: "text-primary-500 bg-primary-50",
 };
 
 export const Toast = ({
@@ -34,6 +38,7 @@ export const Toast = ({
   message,
   onClose,
   duration = 3000,
+  progress = null,
 }) => {
   useEffect(() => {
     if (duration) {
@@ -46,24 +51,37 @@ export const Toast = ({
 
   return (
     <div
-      className={`flex items-center w-full max-w-sm p-4 mb-4 rounded-lg shadow-lg border-l-4 ${colors[type]} animate-fade-in-up`}
+      className={`flex flex-col w-full max-w-sm px-4 pt-4 pb-3 mb-4 rounded-lg shadow-lg border-l-4 ${colors[type]} animate-fade-in-up`}
       role="alert"
     >
-      <div
-        className={`inline-flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg ${iconColors[type]}`}
-      >
-        {icons[type]}
+      <div className="flex items-center">
+        <div
+          className={`inline-flex items-center justify-center flex-shrink-0 w-8 h-8 rounded-lg ${iconColors[type]}`}
+        >
+          {icons[type]}
+        </div>
+        <div className="ml-3 text-sm font-medium flex-1">{message}</div>
+        <button
+          type="button"
+          className="ml-2 -mr-1 bg-white text-gray-400 hover:text-gray-900 rounded-lg focus:ring-2 focus:ring-gray-300 p-1.5 hover:bg-gray-100 inline-flex h-8 w-8 flex-shrink-0"
+          onClick={() => onClose(id)}
+          aria-label="Close"
+        >
+          <span className="sr-only">Close</span>
+          <FiX className="w-5 h-5" />
+        </button>
       </div>
-      <div className="ml-3 text-sm font-medium">{message}</div>
-      <button
-        type="button"
-        className="ml-auto -mx-1.5 -my-1.5 bg-white text-gray-400 hover:text-gray-900 rounded-lg focus:ring-2 focus:ring-gray-300 p-1.5 hover:bg-gray-100 inline-flex h-8 w-8"
-        onClick={() => onClose(id)}
-        aria-label="Close"
-      >
-        <span className="sr-only">Close</span>
-        <FiX className="w-5 h-5" />
-      </button>
+      {progress !== null && (
+        <div className="mt-2 pl-11 pr-1">
+          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-1.5 rounded-full transition-all duration-500 ease-out bg-primary-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400 mt-1 text-right">{progress}%</p>
+        </div>
+      )}
     </div>
   );
 };

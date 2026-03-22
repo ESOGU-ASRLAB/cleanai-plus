@@ -41,6 +41,7 @@ from app.routers.workspace.preprocessing import router as preprocessing_router
 from app.routers.workspace.execution import router as execution_router
 from app.routers.workspace.optimization import router as optimization_router
 from app.routers.workspace.quantization import router as quantization_router
+from app.routers.workspace.export import router as export_router
 from app.routers.users import router as users_router
 from app.config import settings
 from beanie import init_beanie
@@ -112,6 +113,7 @@ app.include_router(preprocessing_router, prefix="/api/workspaces/{workspace_id}/
 app.include_router(execution_router, prefix="/api/workspaces/{workspace_id}/executions", tags=["Executions"])
 app.include_router(optimization_router, prefix="/api/workspaces/{workspace_id}/optimizations", tags=["Optimizations"])
 app.include_router(quantization_router, prefix="/api/workspaces/{workspace_id}/quantizations", tags=["Quantizations"])
+app.include_router(export_router, prefix="/api/workspaces/{workspace_id}", tags=["Export"])
 app.include_router(users_router, prefix="/api")
 app.include_router(code_assist_router, prefix="/api")
 

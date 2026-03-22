@@ -3,14 +3,15 @@ import { Card, Button } from "../common";
 import { FiFolder, FiPlus, FiTrash2, FiClock } from "react-icons/fi";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { useAlert } from "../../context/AlertContext";
 
 const WorkspaceList = () => {
   const { token } = useAuth();
-  const { showConfirm } = useAlert();
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchWorkspaces();
@@ -36,32 +37,32 @@ const WorkspaceList = () => {
   };
 
   const handleDelete = async (id, e) => {
-    e.preventDefault(); // Prevent link click
+    e.preventDefault();
+    const ws = workspaces.find((w) => w.id === id);
+    setDeleteTarget({ id, name: ws?.name || "" });
+    setDeleteConfirmText("");
+  };
 
-    const isConfirmed = await showConfirm(
-      "Are you sure you want to delete this workspace? This action cannot be undone.",
-      "Delete Workspace",
-      "error",
-    );
-
-    if (!isConfirmed) return;
-
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
     try {
       const response = await fetch(
-        `http://localhost:8000/api/workspaces/${id}`,
+        `http://localhost:8000/api/workspaces/${deleteTarget.id}`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         },
       );
-
       if (response.ok) {
-        setWorkspaces(workspaces.filter((w) => w.id !== id));
+        setWorkspaces(workspaces.filter((w) => w.id !== deleteTarget.id));
+        setDeleteTarget(null);
+        setDeleteConfirmText("");
       }
     } catch (err) {
       console.error("Failed to delete", err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -148,6 +149,46 @@ const WorkspaceList = () => {
           </Card>
         </Link>
       ))}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Workspace</h3>
+            <p className="text-gray-600 mb-4">
+              This action <span className="font-semibold">cannot be undone</span>. All models, datasets, and executions associated with this workspace will be permanently deleted.
+            </p>
+            <p className="text-sm text-gray-700 mb-2">
+              Please type <span className="font-semibold text-gray-900">{deleteTarget.name}</span> to confirm.
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={deleteTarget.name}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 mb-4"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); }}
+                disabled={isDeleting}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={isDeleting || deleteConfirmText !== deleteTarget.name}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md transition-colors font-medium"
+              >
+                <FiTrash2 size={15} />
+                {isDeleting ? "Deleting..." : "Delete Workspace"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

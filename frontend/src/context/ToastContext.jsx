@@ -24,6 +24,10 @@ export const ToastProvider = ({ children }) => {
     setToasts((prevToasts) => prevToasts.filter((toast) => toast.id !== id));
   }, []);
 
+  const updateToast = useCallback((id, updates) => {
+    setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+  }, []);
+
   const success = (message, duration) => addToast(message, "success", duration);
   const error = (message, duration) => addToast(message, "error", duration);
   const info = (message, duration) => addToast(message, "info", duration);
@@ -31,7 +35,7 @@ export const ToastProvider = ({ children }) => {
 
   return (
     <ToastContext.Provider
-      value={{ addToast, removeToast, success, error, info, warning }}
+      value={{ addToast, removeToast, updateToast, success, error, info, warning }}
     >
       {children}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2">
@@ -42,6 +46,7 @@ export const ToastProvider = ({ children }) => {
             message={toast.message}
             type={toast.type}
             duration={toast.duration}
+            progress={toast.progress ?? null}
             onClose={removeToast}
           />
         ))}
