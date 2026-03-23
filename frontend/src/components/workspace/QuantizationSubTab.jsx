@@ -546,7 +546,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
             <p className="mt-1 text-xs text-gray-500">
               {config.dtype === 'qint8'
                 ? 'int8: 4× smaller than float32, best for CPU inference.'
-                : 'float16: Half-precision, better accuracy trade-off for GPU.'}
+                : 'float16: Half-precision. Uses GPU Tensor Cores when device is set to CUDA; falls back to CPU dynamic quantization otherwise.'}
             </p>
           </div>
           {(quantizationType === 'static' || quantizationType === 'qat') && (

@@ -223,27 +223,33 @@ class QuantizationService:
         _quantization_progress[quantization_id] = {"progress": 40, "message": "Quantizing weights…"}
 
         original_size = self._get_model_size(model)
-        
-        # Get layer types to quantize
-        layer_types = config.get("layer_types", ["Linear"])
-        qconfig_spec = []
-        if "Linear" in layer_types:
-            qconfig_spec.append(nn.Linear)
-        if "LSTM" in layer_types:
-            qconfig_spec.append(nn.LSTM)
-        if "GRU" in layer_types:
-            qconfig_spec.append(nn.GRU)
 
-        # Get dtype
         dtype_str = config.get("dtype", "qint8")
-        dtype = torch.qint8 if dtype_str == "qint8" else torch.float16
+        device_str = config.get("device", "cpu")
+        use_gpu_half = dtype_str == "float16" and device_str == "cuda" and torch.cuda.is_available()
 
-        # Quantize
-        quantized_model = quantize_dynamic(
-            model, 
-            qconfig_spec=set(qconfig_spec) if qconfig_spec else {nn.Linear},
-            dtype=dtype
-        )
+        if use_gpu_half:
+            # GPU path: convert to half-precision and keep on CUDA for Tensor Core acceleration
+            _quantization_progress[quantization_id] = {"progress": 50, "message": "Converting to float16 on GPU…"}
+            quantized_model = model.half()
+            layer_types = []
+        else:
+            # CPU path: standard dynamic quantization
+            layer_types = config.get("layer_types", ["Linear"])
+            qconfig_spec = []
+            if "Linear" in layer_types:
+                qconfig_spec.append(nn.Linear)
+            if "LSTM" in layer_types:
+                qconfig_spec.append(nn.LSTM)
+            if "GRU" in layer_types:
+                qconfig_spec.append(nn.GRU)
+
+            dtype = torch.qint8 if dtype_str == "qint8" else torch.float16
+            quantized_model = quantize_dynamic(
+                model,
+                qconfig_spec=set(qconfig_spec) if qconfig_spec else {nn.Linear},
+                dtype=dtype
+            )
 
         quantized_size = self._get_model_size(quantized_model)
 
@@ -254,6 +260,7 @@ class QuantizationService:
             "quantization_type": "dynamic",
             "dtype": dtype_str,
             "quantized_layers": layer_types,
+            "gpu_half_precision": use_gpu_half,
         }
 
         _quantization_progress[quantization_id] = {"progress": 70, "message": "Dynamic quantization completed"}
