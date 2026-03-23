@@ -543,6 +543,11 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               <option value="qint8">int8 (recommended)</option>
               <option value="float16">float16</option>
             </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {config.dtype === 'qint8'
+                ? 'int8: 4× smaller than float32, best for CPU inference.'
+                : 'float16: Half-precision, better accuracy trade-off for GPU.'}
+            </p>
           </div>
           {(quantizationType === 'static' || quantizationType === 'qat') && (
             <div>
@@ -551,12 +556,23 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                 <option value="fbgemm">fbgemm (server CPU)</option>
                 <option value="qnnpack">qnnpack (mobile/ARM)</option>
               </select>
+              <p className="mt-1 text-xs text-gray-500">
+                {config.backend === 'fbgemm'
+                  ? 'fbgemm: Optimized for Intel/AMD server and desktop CPUs (x86/x64).'
+                  : 'qnnpack: Optimized for ARM-based devices (mobile, Raspberry Pi, etc.).'}
+              </p>
             </div>
           )}
           {quantizationType === 'static' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Calibration Samples</label>
-              <input type="number" value={config.calibration_samples} onChange={(e) => setConfig({ ...config, calibration_samples: parseInt(e.target.value) })} className="block w-full rounded-md border border-gray-300 px-3 py-2" min="1" />
+              <div className="flex rounded-md shadow-sm">
+                <input type="number" value={config.calibration_samples} onChange={(e) => setConfig({ ...config, calibration_samples: parseInt(e.target.value) })} className="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2 pl-3 border" min="1" />
+                <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 sm:text-sm">
+                  / {selectedDataset?.file_count ?? "-"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">Number of samples used to calibrate quantization ranges.</p>
             </div>
           )}
           {quantizationType === 'qat' && (
@@ -571,9 +587,15 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               </div>
             </>
           )}
-          <div className="col-span-1 md:col-span-2">
+          {quantizationType !== 'static' && <div />}
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Output Model Name Suffix</label>
             <input type="text" value={config.output_name_suffix} onChange={(e) => setConfig({ ...config, output_name_suffix: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="_quantized" />
+            <p className="mt-1 text-xs text-gray-500">
+              <code className="bg-gray-100 px-1 rounded font-mono text-xs">
+                {selectedModel?.name}{config.output_name_suffix}
+              </code>
+            </p>
           </div>
         </div>
       </div>
