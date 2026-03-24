@@ -8,8 +8,8 @@ import copy
 
 import torch
 import torch.nn as nn
-from torch.quantization import quantize_dynamic, get_default_qconfig, get_default_qat_qconfig
-from torch.quantization import prepare, convert, prepare_qat
+from torch.quantization import quantize_dynamic, get_default_qconfig
+from torch.quantization import prepare, convert
 from beanie import PydanticObjectId
 from bson import ObjectId
 
@@ -141,10 +141,6 @@ class QuantizationService:
                 )
             elif quantization.type == QuantizationType.STATIC:
                 quantized_model, result = await self._run_static_quantization(
-                    model, config, quantization, quantization_id
-                )
-            elif quantization.type == QuantizationType.QAT:
-                quantized_model, result = await self._run_qat_quantization(
                     model, config, quantization, quantization_id
                 )
             else:
@@ -305,105 +301,129 @@ class QuantizationService:
 
         return quantized_model, result
 
-    async def _run_qat_quantization(
-        self, model: nn.Module, config: Dict[str, Any], quantization: Quantization, quantization_id: str
-    ) -> Tuple[nn.Module, Dict[str, Any]]:
-        """Run Quantization Aware Training."""
-        _quantization_progress[quantization_id] = {"progress": 40, "message": "Preparing model for QAT…"}
-
-        original_size = self._get_model_size(model)
-        
-        # Get backend
-        backend = config.get("backend", "fbgemm")
-        model.qconfig = get_default_qat_qconfig(backend)
-        
-        # Prepare model for QAT
-        model.train()
-        model_prepared = prepare_qat(copy.deepcopy(model), inplace=False)
-        
-        # Train
-        if quantization.dataset_id:
-            _quantization_progress[quantization_id] = {"progress": 50, "message": "Training with quantization awareness…"}
-            await self._train_qat_model(model_prepared, quantization, config, quantization_id)
-        else:
-            raise Exception("QAT requires a training dataset")
-
-        # Convert to quantized model
-        _quantization_progress[quantization_id] = {"progress": 70, "message": "Converting to quantized model…"}
-        model_prepared.eval()
-        quantized_model = convert(model_prepared, inplace=False)
-
-        quantized_size = self._get_model_size(quantized_model)
-
-        result = {
-            "original_size_mb": original_size,
-            "quantized_size_mb": quantized_size,
-            "compression_ratio": quantized_size / original_size if original_size > 0 else 1.0,
-            "quantization_type": "qat",
-            "backend": backend,
-            "training_epochs": config.get("epochs", 5),
-        }
-
-        return quantized_model, result
-
     async def _calibrate_model(
         self, model: nn.Module, quantization: Quantization, config: Dict[str, Any], quantization_id: str
     ):
-        """Calibrate model with dataset."""
-        # Load dataset
+        """Calibrate model with real dataset samples."""
+        from PIL import Image
+        from torchvision import transforms
+
         dataset = await Dataset.get(quantization.dataset_id)
         if not dataset:
             raise Exception("Dataset not found")
 
-        # Load preprocessing if specified
         preprocessing = None
         if quantization.preprocessing_id:
             preprocessing = await Preprocessing.get(quantization.preprocessing_id)
 
-        # Run calibration forward passes
         calibration_samples = config.get("calibration_samples", 100)
-        
-        # TODO: Implement actual dataset loading and preprocessing
-        # For now, use dummy data
+        device_str = config.get("device", "cpu")
+        device = torch.device(device_str)
+
+        preprocess = self._build_transforms(preprocessing)
+        valid_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+        # Collect image tensors from the dataset folder
+        sample_tensors: List[torch.Tensor] = []
+        for root, _dirs, files in os.walk(dataset.path):
+            for file in files:
+                if len(sample_tensors) >= calibration_samples:
+                    break
+                if os.path.splitext(file)[1].lower() in valid_extensions:
+                    try:
+                        img = Image.open(os.path.join(root, file))
+                        if img.mode != "RGB":
+                            img = img.convert("RGB")
+                        sample_tensors.append(preprocess(img).unsqueeze(0).to(device))
+                    except Exception:
+                        continue
+            if len(sample_tensors) >= calibration_samples:
+                break
+
+        if not sample_tensors:
+            raise Exception(
+                "No valid images found in the dataset. "
+                "Supported formats: jpg, jpeg, png, bmp, tiff, webp."
+            )
+
+        total = len(sample_tensors)
         model.eval()
         with torch.no_grad():
-            for i in range(min(calibration_samples, 100)):
+            for i, tensor in enumerate(sample_tensors):
                 if self.get_cancel_requested(quantization_id):
                     raise Exception("Cancelled by user")
-                # Dummy forward pass
-                dummy_input = torch.randn(1, 3, 224, 224)  # Adjust based on model
                 try:
-                    model(dummy_input)
+                    model(tensor)
                 except Exception:
-                    pass  # Some models may fail with dummy data
-                
+                    pass
+
                 if i % 10 == 0:
-                    progress = 50 + int((i / calibration_samples) * 20)
+                    progress = 50 + int((i / total) * 20)
                     _quantization_progress[quantization_id] = {
-                        "progress": progress, 
-                        "message": f"Calibrating… ({i}/{calibration_samples})"
+                        "progress": progress,
+                        "message": f"Calibrating… ({i + 1}/{total})",
                     }
 
-    async def _train_qat_model(
-        self, model: nn.Module, quantization: Quantization, config: Dict[str, Any], quantization_id: str
-    ):
-        """Train model with quantization awareness."""
-        # TODO: Implement actual training loop
-        # For now, just simulate progress
-        epochs = config.get("epochs", 5)
-        
-        for epoch in range(epochs):
-            if self.get_cancel_requested(quantization_id):
-                raise Exception("Cancelled by user")
-            
-            progress = 50 + int((epoch / epochs) * 20)
-            _quantization_progress[quantization_id] = {
-                "progress": progress, 
-                "message": f"Training QAT… (Epoch {epoch+1}/{epochs})"
-            }
-            
-            # Simulate training time
-            await asyncio.sleep(0.5)
+    def _build_transforms(self, preprocessing_doc):
+        """Build torchvision transforms from preprocessing definition."""
+        from torchvision import transforms
+
+        if not preprocessing_doc or (
+            not preprocessing_doc.steps and not preprocessing_doc.code
+        ):
+            return transforms.Compose(
+                [transforms.Resize((224, 224)), transforms.ToTensor()]
+            )
+
+        transform_list = []
+
+        if preprocessing_doc.mode == "code" and preprocessing_doc.code:
+            try:
+                import numpy as np
+                from PIL import Image as PILImage
+
+                scope = {
+                    "torch": torch,
+                    "transforms": transforms,
+                    "Image": PILImage,
+                    "np": np,
+                }
+                exec(preprocessing_doc.code, scope)
+                if "get_transform" in scope:
+                    return scope["get_transform"]()
+            except Exception as e:
+                print(f"Custom preprocessing code error: {e}")
+
+        if preprocessing_doc.mode == "ui" and preprocessing_doc.steps:
+            for step in preprocessing_doc.steps:
+                s_type = step.get("type")
+                params = step.get("params", {})
+                try:
+                    if s_type == "Resize":
+                        transform_list.append(transforms.Resize((int(params.get("height", 224)), int(params.get("width", 224)))))
+                    elif s_type == "CenterCrop":
+                        transform_list.append(transforms.CenterCrop((int(params.get("height", 224)), int(params.get("width", 224)))))
+                    elif s_type == "Grayscale":
+                        transform_list.append(transforms.Grayscale(num_output_channels=int(params.get("num_output_channels", 3))))
+                    elif s_type == "ToTensor":
+                        transform_list.append(transforms.ToTensor())
+                    elif s_type == "Normalize":
+                        transform_list.append(transforms.Normalize(
+                            mean=params.get("mean", [0.485, 0.456, 0.406]),
+                            std=params.get("std", [0.229, 0.224, 0.225]),
+                        ))
+                except Exception:
+                    pass
+
+        has_to_tensor = any(isinstance(t, transforms.ToTensor) for t in transform_list)
+        if not has_to_tensor:
+            norm_indices = [i for i, t in enumerate(transform_list) if isinstance(t, transforms.Normalize)]
+            if norm_indices:
+                transform_list.insert(norm_indices[0], transforms.ToTensor())
+            else:
+                transform_list.append(transforms.ToTensor())
+
+        return transforms.Compose(transform_list)
 
     def _get_model_size(self, model: nn.Module) -> float:
         """Get model size in MB."""
@@ -449,6 +469,8 @@ class QuantizationService:
             "file_path": output_path,
             "file_size": os.path.getsize(output_path),
             "framework": "pytorch",
+            "is_optimized": True,
+            "original_model_id": ObjectId(str(quantization.model_id)),
             "metadata": {
                 "quantization_id": str(quantization.id),
                 "original_model_id": str(quantization.model_id),

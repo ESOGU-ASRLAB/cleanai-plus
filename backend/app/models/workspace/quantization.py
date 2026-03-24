@@ -9,7 +9,6 @@ from enum import Enum
 class QuantizationType(str, Enum):
     DYNAMIC = "dynamic"
     STATIC = "static"  # Post-Training Quantization
-    QAT = "qat"  # Quantization Aware Training
 
 
 class QuantizationStatus(str, Enum):

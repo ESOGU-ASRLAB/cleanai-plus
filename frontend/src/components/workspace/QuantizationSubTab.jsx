@@ -31,8 +31,8 @@ import {
 
 const QUANTIZATION_STEPS = [
   { id: 1, title: "Select Model" },
-  { id: 2, title: "Select Dataset" },
-  { id: 3, title: "Quantization Type" },
+  { id: 2, title: "Quantization Type" },
+  { id: 3, title: "Select Dataset" },
   { id: 4, title: "Configuration" },
   { id: 5, title: "Review & Create" },
 ];
@@ -48,12 +48,6 @@ const QUANTIZATION_TYPES = [
     value: "static",
     label: "Static Quantization (PTQ)",
     description: "Quantizes both weights and activations. Best for CNN models. Requires calibration dataset.",
-    requiresDataset: true,
-  },
-  {
-    value: "qat",
-    label: "Quantization Aware Training (QAT)",
-    description: "Most accurate. Trains model with quantization simulation. Requires training dataset.",
     requiresDataset: true,
   },
 ];
@@ -98,8 +92,6 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
     layer_types: ["Linear"],
     calibration_samples: 100,
     calibration_method: "minmax",
-    epochs: 5,
-    learning_rate: 0.0001,
     batch_size: 32,
     output_format: "state_dict",
     output_name_suffix: "_quantized",
@@ -284,7 +276,8 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
 
   const canProceed = () => {
     if (activeStep === 1) return !!selectedModel;
-    if (activeStep === 2) {
+    if (activeStep === 2) return !!quantizationType;
+    if (activeStep === 3) {
       const typeInfo = QUANTIZATION_TYPES.find((t) => t.value === quantizationType);
       return !typeInfo?.requiresDataset || !!selectedDataset;
     }
@@ -350,7 +343,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
       <p className="text-sm text-gray-600 mb-4">
         Select the model to optimize. Only PyTorch models (
         <span className="font-medium">full_model, state_dict, safetensors</span>
-        ) are supported. ONNX and TorchScript models cannot be pruned.
+        ) are supported. ONNX and TorchScript models cannot be quantized.
       </p>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <button
@@ -443,54 +436,16 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
   const renderStep2 = () => (
     <div>
       <p className="text-sm text-gray-600 mb-4">
-        Select a dataset to use for calibration and performance benchmarking.
-        Dataset samples will be used to measure real inference latency and throughput,
-        and for importance score computation when applicable.
-      </p>
-      {datasets.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-300 mb-3">
-          <FiDatabase className="mb-3 h-10 w-10" />
-          <p className="text-sm font-medium">No datasets available</p>
-          <p className="text-xs mt-1">Upload a dataset first to continue.</p>
-        </div>
-      )}
-      <div className="space-y-3">
-        {datasets.map((dataset) => (
-          <div
-            key={dataset._id}
-            onClick={() => setSelectedDataset(dataset)}
-            className={`p-4 border rounded-lg cursor-pointer transition-all flex items-center gap-4 ${
-              selectedDataset?._id === dataset._id
-                ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
-                : "border-gray-200 hover:border-primary-200 hover:bg-gray-50"
-            }`}
-          >
-            <div className="p-2 bg-indigo-100 rounded text-indigo-600">
-              <FiDatabase />
-            </div>
-            <div>
-              <h4 className="font-medium text-gray-900">{dataset.name}</h4>
-              <p className="text-sm text-gray-500">
-                {dataset.file_count} files · {dataset.classes?.length || 0}{" "}
-                classes
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div>
-      <p className="text-sm text-gray-600 mb-4">
         Select quantization type based on your use case and requirements.
       </p>
       <div className="space-y-3">
         {QUANTIZATION_TYPES.map((type) => (
           <div
             key={type.value}
-            onClick={() => setQuantizationType(type.value)}
+            onClick={() => {
+              setQuantizationType(type.value);
+              if (!type.requiresDataset) setSelectedDataset(null);
+            }}
             className={`p-4 border rounded-lg cursor-pointer transition-all ${
               quantizationType === type.value
                 ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
@@ -508,12 +463,6 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               <div className="flex-1">
                 <h4 className="font-medium text-gray-900">{type.label}</h4>
                 <p className="text-sm text-gray-500 mt-1">{type.description}</p>
-                {type.requiresDataset && !selectedDataset && (
-                  <div className="mt-2 flex items-center gap-1 text-xs text-amber-600">
-                    <FiAlertCircle className="w-3 h-3" />
-                    <span>Requires dataset (previous step)</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -521,6 +470,69 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
       </div>
     </div>
   );
+
+  const renderStep3 = () => {
+    const typeRequiresDataset = QUANTIZATION_TYPES.find((t) => t.value === quantizationType)?.requiresDataset;
+    return (
+      <div>
+        <p className="text-sm text-gray-600 mb-4">
+          {typeRequiresDataset
+            ? "Static quantization requires a calibration dataset. Select the dataset to use below."
+            : "Dynamic quantization does not require a dataset. You may optionally select one for benchmarking."
+          }
+        </p>
+        {typeRequiresDataset && datasets.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-300 mb-3">
+            <FiDatabase className="mb-3 h-10 w-10" />
+            <p className="text-sm font-medium">No datasets available</p>
+            <p className="text-xs mt-1">Upload a dataset first to continue.</p>
+          </div>
+        )}
+        {!typeRequiresDataset && (
+          <div
+            onClick={() => setSelectedDataset(null)}
+            className={`p-4 border rounded-lg cursor-pointer transition-all flex items-center gap-4 mb-3 ${
+              selectedDataset === null
+                ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
+                : "border-gray-200 hover:border-primary-200 hover:bg-gray-50"
+            }`}
+          >
+            <div className="p-2 bg-gray-100 rounded text-gray-500">
+              <FiDatabase />
+            </div>
+            <div>
+              <h4 className="font-medium text-gray-900">No dataset</h4>
+              <p className="text-sm text-gray-500">Skip dataset selection</p>
+            </div>
+          </div>
+        )}
+        <div className="space-y-3">
+          {datasets.map((dataset) => (
+            <div
+              key={dataset._id}
+              onClick={() => setSelectedDataset(dataset)}
+              className={`p-4 border rounded-lg cursor-pointer transition-all flex items-center gap-4 ${
+                selectedDataset?._id === dataset._id
+                  ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
+                  : "border-gray-200 hover:border-primary-200 hover:bg-gray-50"
+              }`}
+            >
+              <div className="p-2 bg-indigo-100 rounded text-indigo-600">
+                <FiDatabase />
+              </div>
+              <div>
+                <h4 className="font-medium text-gray-900">{dataset.name}</h4>
+                <p className="text-sm text-gray-500">
+                  {dataset.file_count} files · {dataset.classes?.length || 0}{" "}
+                  classes
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const renderStep4 = () => (
     <div className="max-w-3xl mx-auto">
@@ -549,7 +561,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                 : 'float16: Half-precision. Uses GPU Tensor Cores when device is set to CUDA; falls back to CPU dynamic quantization otherwise.'}
             </p>
           </div>
-          {(quantizationType === 'static' || quantizationType === 'qat') && (
+          {quantizationType === 'static' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Backend</label>
               <select value={config.backend} onChange={(e) => setConfig({ ...config, backend: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2">
@@ -574,18 +586,6 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               </div>
               <p className="mt-1 text-xs text-gray-500">Number of samples used to calibrate quantization ranges.</p>
             </div>
-          )}
-          {quantizationType === 'qat' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Training Epochs</label>
-                <input type="number" value={config.epochs} onChange={(e) => setConfig({ ...config, epochs: parseInt(e.target.value) })} className="block w-full rounded-md border border-gray-300 px-3 py-2" min="1" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Learning Rate</label>
-                <input type="number" step="0.0001" value={config.learning_rate} onChange={(e) => setConfig({ ...config, learning_rate: parseFloat(e.target.value) })} className="block w-full rounded-md border border-gray-300 px-3 py-2" />
-              </div>
-            </>
           )}
           {quantizationType !== 'static' && <div />}
           <div>
@@ -628,14 +628,8 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
           <dd>
             <ul className="grid grid-cols-2 gap-2 text-sm text-gray-900">
               <li><span className="text-gray-500">Data Type: </span>{config.dtype}</li>
-              {(quantizationType === 'static' || quantizationType === 'qat') && <li><span className="text-gray-500">Backend: </span>{config.backend}</li>}
+              {quantizationType === 'static' && <li><span className="text-gray-500">Backend: </span>{config.backend}</li>}
               {quantizationType === 'static' && <li><span className="text-gray-500">Calibration Samples: </span>{config.calibration_samples}</li>}
-              {quantizationType === 'qat' && (
-                <>
-                  <li><span className="text-gray-500">Epochs: </span>{config.epochs}</li>
-                  <li><span className="text-gray-500">Learning Rate: </span>{config.learning_rate}</li>
-                </>
-              )}
               <li><span className="text-gray-500">Device: </span>{config.device.toUpperCase()}</li>
             </ul>
           </dd>
@@ -676,7 +670,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
             <FiArrowLeft />
           </Button>
           <h2 className="text-xl font-bold text-gray-900">
-            New Network quantization
+            New Network Quantization
           </h2>
         </div>
 
@@ -708,7 +702,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
             >
               {creating ? (
                 <>
-                  <FiLoader className="mr-2 inline animate-spin" /> StartingÔÇĞ
+                  <FiLoader className="mr-2 inline animate-spin" /> Starting…
                 </>
               ) : (
                 <>
@@ -731,7 +725,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-medium text-gray-900">
-            Network quantization
+            Network Quantization
           </h2>
           <p className="text-sm text-gray-500">
             Reduce model precision (float32 → int8) for faster inference
@@ -917,7 +911,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                   <div>
                     <h4 className="font-medium text-gray-900 flex items-center gap-2">
                       <FiZap className="text-gray-500" />
-                      quantization Details
+                      Quantization Details
                       <StatusBadge status={selectedQuantization.status} />
                     </h4>
                     <p className="text-xs text-gray-500 mt-1 ml-6 font-mono">
@@ -1059,7 +1053,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                       0 && (
                       <div>
                         <h5 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
-                          <FiTrendingDown size={14} /> quantization Results
+                          <FiTrendingDown size={14} /> Quantization Results
                         </h5>
 
                         {/* Output model name */}
@@ -1127,7 +1121,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                               </p>
                             </div>
                           )}
-                          {/* Backend (for static/QAT) */}
+                          {/* Backend (for static PTQ) */}
                           {selectedQuantization.result.backend && (
                             <div className="bg-white p-3 rounded-lg border border-gray-200">
                               <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
@@ -1149,17 +1143,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                               </p>
                             </div>
                           )}
-                          {/* Training epochs (for QAT) */}
-                          {selectedQuantization.result.training_epochs && (
-                            <div className="bg-white p-3 rounded-lg border border-gray-200">
-                              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
-                                Training Epochs
-                              </p>
-                              <p className="text-base font-bold text-gray-900">
-                                {selectedQuantization.result.training_epochs}
-                              </p>
-                            </div>
-                          )}
+
                         </div>
                       </div>
                     )}
@@ -1170,7 +1154,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                       <div className="flex items-center gap-3 text-gray-700">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-600 flex-shrink-0" />
                         <span className="text-sm font-medium">
-                          {quantProgress[selectedQuantization.id || selectedQuantization._id]?.message || "quantization in progress\u2026"}
+                          {quantProgress[selectedQuantization.id || selectedQuantization._id]?.message || "Quantization in progress\u2026"}
                         </span>
                         <span className="ml-auto text-sm font-semibold text-primary-600 tabular-nums">
                           {quantProgress[selectedQuantization.id || selectedQuantization._id]?.progress ?? 0}%
