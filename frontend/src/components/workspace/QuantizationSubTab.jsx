@@ -445,6 +445,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
             onClick={() => {
               setQuantizationType(type.value);
               if (!type.requiresDataset) setSelectedDataset(null);
+              if (type.value === 'static') setConfig((prev) => ({ ...prev, dtype: 'qint8' }));
             }}
             className={`p-4 border rounded-lg cursor-pointer transition-all ${
               quantizationType === type.value
@@ -534,7 +535,22 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
     );
   };
 
-  const renderStep4 = () => (
+  const renderStep4 = () => {
+    const isStaticType = quantizationType === 'static';
+    const isFloat16 = config.dtype === 'float16';
+
+    // CPU/GPU guidance
+    const hwInfo = isStaticType
+      ? { icon: '🖥️', label: 'CPU only', color: 'blue', text: 'Static quantization runs entirely on CPU. The quantized model is optimised for CPU inference.' }
+      : isFloat16
+        ? { icon: '⚡', label: 'GPU (CUDA)', color: 'purple', text: 'float16 uses GPU Tensor Cores for inference. Make sure CUDA is available; otherwise the model stays as float32 on CPU.' }
+        : { icon: '🖥️', label: 'CPU', color: 'blue', text: 'int8 dynamic quantization runs on CPU. It quantizes weights on-the-fly at inference time — no GPU required.' };
+
+    const bannerColor = hwInfo.color === 'purple'
+      ? 'bg-purple-50 border-purple-200 text-purple-800'
+      : 'bg-blue-50 border-blue-200 text-blue-800';
+
+    return (
     <div className="max-w-3xl mx-auto">
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center mb-6 pb-4 border-b border-gray-100">
@@ -548,20 +564,32 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
             </p>
           </div>
         </div>
+
+        {/* CPU / GPU guidance banner */}
+        <div className={`flex items-start gap-3 rounded-lg border px-4 py-3 mb-6 text-sm ${bannerColor}`}>
+          <span className="text-base leading-snug">{hwInfo.icon}</span>
+          <div>
+            <span className="font-semibold">{hwInfo.label} — </span>
+            {hwInfo.text}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Data Type</label>
-            <select value={config.dtype} onChange={(e) => setConfig({ ...config, dtype: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2">
+            <select value={config.dtype} onChange={(e) => setConfig({ ...config, dtype: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2" disabled={isStaticType}>
               <option value="qint8">int8 (recommended)</option>
-              <option value="float16">float16</option>
+              {!isStaticType && <option value="float16">float16</option>}
             </select>
             <p className="mt-1 text-xs text-gray-500">
-              {config.dtype === 'qint8'
-                ? 'int8: 4× smaller than float32, best for CPU inference.'
-                : 'float16: Half-precision. Uses GPU Tensor Cores when device is set to CUDA; falls back to CPU dynamic quantization otherwise.'}
+              {isStaticType
+                ? 'Static quantization only supports int8. Activations and weights are quantized to 8-bit integers.'
+                : isFloat16
+                  ? 'float16: Half-precision. Requires CUDA GPU for Tensor Core acceleration.'
+                  : 'int8: 4× smaller than float32, best for CPU inference.'}
             </p>
           </div>
-          {quantizationType === 'static' && (
+          {isStaticType && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Backend</label>
               <select value={config.backend} onChange={(e) => setConfig({ ...config, backend: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2">
@@ -575,7 +603,7 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               </p>
             </div>
           )}
-          {quantizationType === 'static' && (
+          {isStaticType && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Calibration Samples</label>
               <div className="flex rounded-md shadow-sm">
@@ -587,7 +615,6 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
               <p className="mt-1 text-xs text-gray-500">Number of samples used to calibrate quantization ranges.</p>
             </div>
           )}
-          {quantizationType !== 'static' && <div />}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Output Model Name Suffix</label>
             <input type="text" value={config.output_name_suffix} onChange={(e) => setConfig({ ...config, output_name_suffix: e.target.value })} className="block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="_quantized" />
@@ -600,7 +627,8 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
 
   const renderStep5 = () => (

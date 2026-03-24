@@ -230,7 +230,7 @@ class QuantizationService:
             quantized_model = model.half()
             layer_types = []
         else:
-            # CPU path: standard dynamic quantization
+            # CPU path: standard dynamic quantization (only qint8 supported on CPU)
             layer_types = config.get("layer_types", ["Linear"])
             qconfig_spec = []
             if "Linear" in layer_types:
@@ -240,7 +240,7 @@ class QuantizationService:
             if "GRU" in layer_types:
                 qconfig_spec.append(nn.GRU)
 
-            dtype = torch.qint8 if dtype_str == "qint8" else torch.float16
+            dtype = torch.qint8  # float16 requires CUDA; always use qint8 on CPU
             quantized_model = quantize_dynamic(
                 model,
                 qconfig_spec=set(qconfig_spec) if qconfig_spec else {nn.Linear},
@@ -428,9 +428,16 @@ class QuantizationService:
     def _get_model_size(self, model: nn.Module) -> float:
         """Get model size in MB."""
         import tempfile
-        with tempfile.NamedTemporaryFile(delete=True) as tmp:
-            torch.save(model.state_dict(), tmp.name)
-            size_bytes = os.path.getsize(tmp.name)
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pth")
+        try:
+            os.close(tmp_fd)
+            torch.save(model.state_dict(), tmp_path)
+            size_bytes = os.path.getsize(tmp_path)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
         return size_bytes / (1024 * 1024)
 
     async def _save_quantized_model(
@@ -445,7 +452,7 @@ class QuantizationService:
         suffix = quantization.config.get("output_name_suffix", f"_{quantization.type}_quantized")
         
         workspace_id = str(quantization.workspace_id)
-        workspace_dir = f"backend/uploads/workspaces/{workspace_id}"
+        workspace_dir = os.path.join("uploads", "workspaces", workspace_id)
         os.makedirs(workspace_dir, exist_ok=True)
         
         output_filename = f"{original_name}{suffix}.pth"
@@ -461,14 +468,18 @@ class QuantizationService:
             model_format = ModelFormat.STATE_DICT
         
         # Create new model entry
+        new_model_id = ObjectId()
         new_model = {
+            "_id": new_model_id,
             "workspace_id": ObjectId(workspace_id),
+            "owner_id": original_model_doc.get("owner_id"),
             "name": f"{original_name}{suffix}",
             "description": f"Quantized from {original_name} using {quantization.type} quantization",
             "format": model_format,
             "file_path": output_path,
-            "file_size": os.path.getsize(output_path),
-            "framework": "pytorch",
+            "file_size_bytes": os.path.getsize(output_path),
+            "definition_file_path": None,
+            "version": "1.0.0",
             "is_optimized": True,
             "original_model_id": ObjectId(str(quantization.model_id)),
             "metadata": {
@@ -478,6 +489,7 @@ class QuantizationService:
                 **result
             },
             "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
         }
         
         insert_result = await db.ai_models.insert_one(new_model)
