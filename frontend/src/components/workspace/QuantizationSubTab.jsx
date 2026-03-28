@@ -658,7 +658,11 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                         newConfig.output_name_postfix = `_${qt.value}`;
                         newConfig.device = "cuda";
                       } else {
-                        newConfig.output_name_postfix = `_quant_${config.bit_width}`;
+                        // Static quantization only supports INT8
+                        if (qt.value === "static") {
+                          newConfig.bit_width = "int8";
+                        }
+                        newConfig.output_name_postfix = `_quant_${newConfig.bit_width || config.bit_width}`;
                         newConfig.device = "cpu";
                       }
                       setConfig(newConfig);
@@ -741,8 +745,13 @@ const QuantizationSubTab = ({ workspace, isReadonly = false }) => {
                   className="block w-full rounded-md border border-gray-300 pl-3 pr-8 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
                 >
                   {BIT_WIDTH_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
+                    <option
+                      key={opt.value}
+                      value={opt.value}
+                      disabled={isStaticMode && opt.value !== "int8"}
+                    >
                       {opt.label} — {opt.description}
+                      {isStaticMode && opt.value !== "int8" ? " (not supported for Static PTQ)" : ""}
                     </option>
                   ))}
                 </select>

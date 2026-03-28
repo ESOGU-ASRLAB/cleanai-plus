@@ -865,6 +865,19 @@ class ExecutionService:
             # unsupported CUDA qschemes (e.g. per_channel_affine).
             # FP16/BF16 models are NOT INT8-quantized and will be moved
             # to GPU normally.
+
+            # Set quantization backend engine before loading (required for
+            # static quantized models to deserialize correctly)
+            q_backend = model_doc.get("quantization_backend")
+            if q_backend:
+                torch.backends.quantized.engine = q_backend
+            else:
+                # Safe default — fbgemm for x86, qnnpack for ARM
+                import platform
+                torch.backends.quantized.engine = (
+                    "qnnpack" if platform.machine().startswith("a") else "fbgemm"
+                )
+
             model = torch.load(file_path, map_location="cpu", weights_only=False)
             model.eval()
             if device.type != "cpu" and not self._is_int8_quantized_model(model):
@@ -877,8 +890,23 @@ class ExecutionService:
             return model
 
         elif fmt == ModelFormat.TORCHSCRIPT:
-            model = torch.jit.load(file_path, map_location=device)
+            # Set quantization backend engine before loading (required for
+            # static quantized TorchScript models)
+            q_backend = model_doc.get("quantization_backend")
+            if q_backend:
+                torch.backends.quantized.engine = q_backend
+
+            model = torch.jit.load(file_path, map_location="cpu")
             model.eval()
+            if device.type != "cpu":
+                # TorchScript INT8 quantized models must stay on CPU
+                try:
+                    model = model.to(device)
+                except Exception:
+                    print(
+                        f"TorchScript model could not move to {device}, "
+                        f"running on CPU (likely INT8 quantized)."
+                    )
             return model
             
         elif fmt == ModelFormat.SAFETENSORS:

@@ -31,6 +31,7 @@ class AIModelInDB(AIModelBase):
     definition_file_path: Optional[str] = None
     is_optimized: bool = False
     optimization_type: Optional[str] = None
+    quantization_backend: Optional[str] = None
     is_favorite: bool = False
     original_model_id: Optional[PyObjectId] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

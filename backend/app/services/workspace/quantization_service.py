@@ -1,5 +1,6 @@
 import os
 import sys
+import copy
 import importlib.util
 import asyncio
 import time as _time
@@ -224,11 +225,28 @@ class QuantizationService:
             original_name = model_doc["name"]
             new_model_name = f"{original_name}{output_postfix}"
             safe_filename = new_model_name.replace(" ", "_").replace("/", "_")
-            new_file_path = os.path.join(workspace_path, f"{safe_filename}.pth")
 
-            await loop.run_in_executor(
-                None, lambda: torch.save(q_model, new_file_path)
-            )
+            # Static quantized models must be saved via TorchScript
+            # because quantized modules (QuantizedConv2d, ConvReLU2d etc.)
+            # do not survive pickle (torch.save) roundtrip.
+            is_static = quantization_type == "static"
+            if is_static:
+                new_file_path = os.path.join(workspace_path, f"{safe_filename}.pt")
+                model_format = ModelFormat.TORCHSCRIPT
+
+                def _save_torchscript():
+                    q_model.eval()
+                    dummy = example_inputs[:1].cpu()
+                    traced = torch.jit.trace(q_model.cpu(), dummy)
+                    torch.jit.save(traced, new_file_path)
+
+                await loop.run_in_executor(None, _save_torchscript)
+            else:
+                new_file_path = os.path.join(workspace_path, f"{safe_filename}.pth")
+                model_format = ModelFormat.FULL_MODEL
+                await loop.run_in_executor(
+                    None, lambda: torch.save(q_model, new_file_path)
+                )
 
             file_size = os.path.getsize(new_file_path)
 
@@ -251,7 +269,7 @@ class QuantizationService:
                     f"Quantized version of '{original_name}'. "
                     f"Type: {quantization_type}, Bit width: {bit_width}"
                 ),
-                "format": ModelFormat.FULL_MODEL,
+                "format": model_format,
                 "workspace_id": quantization.workspace_id,
                 "owner_id": model_doc["owner_id"],
                 "file_path": new_file_path,
@@ -260,6 +278,7 @@ class QuantizationService:
                 "version": "1.0.0",
                 "is_optimized": True,
                 "optimization_type": quantization_type,
+                "quantization_backend": backend,
                 "original_model_id": model_doc["_id"],
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
@@ -473,10 +492,18 @@ class QuantizationService:
             return q_model
 
         elif quantization_type == "static":
-            _report(1, "Configuring static quantization…")
-            model_cpu = model.cpu()
+            _report(1, "Configuring static quantization (FX Graph Mode)…")
 
-            # Set qconfig based on backend and per_channel
+            from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
+            from torch.ao.quantization import QConfigMapping
+
+            # Set the quantization backend engine globally
+            torch.backends.quantized.engine = backend
+
+            # Deep-copy and ensure eval + CPU before preparation
+            model_cpu = copy.deepcopy(model).cpu().eval()
+
+            # Build QConfigMapping
             if per_channel:
                 qconfig = torch.ao.quantization.get_default_qconfig(backend)
             else:
@@ -488,11 +515,22 @@ class QuantizationService:
                         dtype=torch.qint8
                     ),
                 )
-            model_cpu.qconfig = qconfig
+            qconfig_mapping = QConfigMapping().set_global(qconfig)
 
-            # Prepare model for static quantization
+            # FX Graph Mode: automatically handles QuantStub/DeQuantStub,
+            # module fusion, and functional ops like skip-connection add.
+            # Needs a representative example input for tracing.
+            _report(1, "Preparing model graph for quantization…")
+            calibration_inputs = self._get_calibration_samples(
+                dataset_doc, preprocessing_doc, torch.device("cpu"),
+                config, calibration_num_samples, None, quantization_id,
+                lambda msg: _report(1, msg),
+            )
+
+            example_input = calibration_inputs[0].cpu() if calibration_inputs else torch.randn(1, 3, 32, 32)
+
             try:
-                prepared = torch.ao.quantization.prepare(model_cpu)
+                prepared = prepare_fx(model_cpu, qconfig_mapping, example_inputs=(example_input,))
             except Exception as e:
                 raise Exception(
                     f"Static quantization preparation failed: {e}. "
@@ -501,13 +539,7 @@ class QuantizationService:
                 )
 
             # Calibration pass
-            _report(1, f"Running calibration with {calibration_num_samples} samples…")
-            calibration_inputs = self._get_calibration_samples(
-                dataset_doc, preprocessing_doc, torch.device("cpu"),
-                config, calibration_num_samples, None, quantization_id,
-                lambda msg: _report(1, msg),
-            )
-
+            _report(1, f"Running calibration with {len(calibration_inputs)} samples…")
             prepared.eval()
             with torch.no_grad():
                 for i, sample in enumerate(calibration_inputs):
@@ -522,12 +554,14 @@ class QuantizationService:
             # Convert to quantized model
             _report(1, "Converting to quantized model…")
             try:
-                q_model = torch.ao.quantization.convert(prepared)
+                q_model = convert_fx(prepared)
             except Exception as e:
                 raise Exception(
                     f"Static quantization conversion failed: {e}. "
                     "Try dynamic quantization or a different model."
                 )
+
+            q_model.eval()
             return q_model
 
         elif quantization_type == "weight_only":
@@ -599,6 +633,54 @@ class QuantizationService:
         elif quantization_type == "weight_only":
             return "CPU (memory-constrained environments)"
         return "CPU / GPU"
+
+    @staticmethod
+    def _find_fusable_modules(model: nn.Module) -> list:
+        """Find sequences of [Conv, BN, ReLU] or [Conv, BN] or [Linear, ReLU]
+        that can be fused for static quantization.
+
+        Scans each parent module's **direct named children** in order, so
+        only genuinely adjacent sub-modules within the same container are
+        proposed for fusion.  Returns list of lists of dot-path name strings
+        relative to *model*.
+        """
+        CONV = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
+        BN = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)
+
+        fuse_list = []
+
+        for parent_name, parent_mod in model.named_modules():
+            children = list(parent_mod.named_children())
+            i = 0
+            while i < len(children):
+                cname, cmod = children[i]
+                full = f"{parent_name}.{cname}" if parent_name else cname
+
+                if isinstance(cmod, CONV):
+                    seq = [full]
+                    # Check next sibling for BN
+                    if i + 1 < len(children) and isinstance(children[i + 1][1], BN):
+                        bn_full = f"{parent_name}.{children[i+1][0]}" if parent_name else children[i+1][0]
+                        seq.append(bn_full)
+                        # Check sibling after BN for ReLU
+                        if i + 2 < len(children) and isinstance(children[i + 2][1], nn.ReLU):
+                            relu_full = f"{parent_name}.{children[i+2][0]}" if parent_name else children[i+2][0]
+                            seq.append(relu_full)
+                    if len(seq) >= 2:
+                        fuse_list.append(seq)
+                        i += len(seq)
+                        continue
+
+                elif isinstance(cmod, nn.Linear):
+                    if i + 1 < len(children) and isinstance(children[i + 1][1], nn.ReLU):
+                        relu_full = f"{parent_name}.{children[i+1][0]}" if parent_name else children[i+1][0]
+                        fuse_list.append([full, relu_full])
+                        i += 2
+                        continue
+
+                i += 1
+
+        return fuse_list
 
     # ------------------------------------------------------------------ #
     #  Helpers (mirrored from OptimizationService)                        #
