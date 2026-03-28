@@ -16,7 +16,6 @@ from app.models.report import Report
 from app.models.workspace.execution import Execution
 from app.models.workspace.optimization import Optimization
 from app.models.workspace.preprocessing import Preprocessing
-from app.models.workspace.quantization import Quantization
 from app.models.workspace.workspace import WorkspaceInDB
 
 UPLOAD_DIR = "uploads"
@@ -71,7 +70,6 @@ def _build_zip_sync(
     include_preprocessings: bool,
     include_executions: bool,
     include_optimizations: bool,
-    include_quantizations: bool,
     include_datasets: bool,
     include_models: bool,
     include_reports: bool,
@@ -95,7 +93,6 @@ def _build_zip_sync(
             "preprocessings": include_preprocessings,
             "executions": include_executions,
             "optimizations": include_optimizations,
-            "quantizations": include_quantizations,
             "datasets": include_datasets,
             "models": include_models,
             "reports": include_reports,
@@ -127,10 +124,7 @@ def _build_zip_sync(
             zf.writestr("optimizations/metadata.json", json.dumps(payload["optimizations"], indent=2))
             summary["counts"]["optimizations"] = len(payload["optimizations"])
 
-        # quantizations
-        if include_quantizations:
-            zf.writestr("quantizations/metadata.json", json.dumps(payload["quantizations"], indent=2))
-            summary["counts"]["quantizations"] = len(payload["quantizations"])
+        # quantizations section removed
 
         # activities
         if include_activities:
@@ -205,7 +199,6 @@ class ExportService:
         include_preprocessings: bool,
         include_executions: bool,
         include_optimizations: bool,
-        include_quantizations: bool,
         include_datasets: bool,
         include_models: bool,
         include_reports: bool,
@@ -261,17 +254,6 @@ class ExportService:
             payload["optimizations"] = [_doc_to_dict(o) for o in optimization_docs]
             if not include_metrics:
                 payload["optimizations"] = [_strip_heavy_metrics(d) for d in payload["optimizations"]]
-
-        # ── quantizations ────────────────────────────────────────────────────
-        await _prog("Collecting quantizations...", 33)
-        payload["quantizations"] = []
-        if include_quantizations:
-            quantization_docs = await Quantization.find(
-                Quantization.workspace_id == oid
-            ).to_list()
-            payload["quantizations"] = [_doc_to_dict(q) for q in quantization_docs]
-            if not include_metrics:
-                payload["quantizations"] = [_strip_heavy_metrics(d) for d in payload["quantizations"]]
 
         # ── activities ───────────────────────────────────────────────────────
         await _prog("Collecting activity log...", 42)
@@ -336,7 +318,6 @@ class ExportService:
             include_preprocessings,
             include_executions,
             include_optimizations,
-            include_quantizations,
             include_datasets,
             include_models,
             include_reports,

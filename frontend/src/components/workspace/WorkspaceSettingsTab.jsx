@@ -17,7 +17,6 @@ import {
   FiAlertCircle,
   FiPlay,
   FiZap,
-  FiMinimize2,
   FiSliders,
 } from "react-icons/fi";
 import { Button } from "../common";
@@ -28,7 +27,6 @@ const METADATA_OPTIONS = [
   { key: "include_preprocessings", icon: FiSliders,   label: "Preprocessings", description: "Preprocessing pipeline configurations and parameters." },
   { key: "include_executions",     icon: FiPlay,      label: "Executions",     description: "Model training execution records and results." },
   { key: "include_optimizations",  icon: FiZap,       label: "Optimizations",  description: "Model optimization records and results." },
-  { key: "include_quantizations",  icon: FiMinimize2, label: "Quantizations",  description: "Model quantization records and results." },
   { key: "include_reports",        icon: FiFileText,  label: "Reports",        description: "Execution and optimization report records." },
   { key: "include_activities",     icon: FiActivity,  label: "Activity Log",   description: "All workspace activity history." },
 ];
@@ -55,7 +53,6 @@ const WorkspaceSettingsTab = ({ workspace, onUpdate, onDelete }) => {
     include_preprocessings: true,
     include_executions: true,
     include_optimizations: true,
-    include_quantizations: true,
     include_datasets: true,
     include_models: true,
     include_reports: true,

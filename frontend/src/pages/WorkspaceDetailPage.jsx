@@ -195,7 +195,7 @@ const WorkspaceDetailPage = () => {
         target: "tab-optimization",
         title: "Network Optimization",
         content:
-          "Reduce model size and boost inference speed with Pruning (Taylor, WANDA, LAMP and more) and Quantization (Dynamic, Static PTQ). Monitor optimization progress in real time.",
+          "Reduce model size and boost inference speed with Pruning (Taylor, WANDA, LAMP and more). Monitor optimization progress in real time.",
         position: "bottom",
       },
       {
