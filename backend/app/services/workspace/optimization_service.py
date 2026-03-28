@@ -390,6 +390,7 @@ class OptimizationService:
                 "definition_file_path": None,
                 "version": "1.0.0",
                 "is_optimized": True,
+                "optimization_type": "pruned",
                 "original_model_id": model_doc["_id"],
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),

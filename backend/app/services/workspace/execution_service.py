@@ -321,6 +321,27 @@ class ExecutionService:
         model = self._load_model_from_disk(model_doc, device, num_classes)
         model.eval()
 
+        # Re-derive effective device: INT8 quantized models are forced to
+        # CPU.  FP16/BF16 and non-quantized models keep the requested device.
+        try:
+            _p = next(model.parameters())
+            effective_device = _p.device
+        except StopIteration:
+            effective_device = device
+        if effective_device != device:
+            print(f"Model lives on {effective_device} (requested {device}). Adjusting device.")
+            device = effective_device
+
+        # Detect model dtype for FP16/BF16 models so inputs are cast to match.
+        model_dtype = torch.float32
+        try:
+            _p = next(model.parameters())
+            if _p.dtype in (torch.float16, torch.bfloat16):
+                model_dtype = _p.dtype
+                print(f"Model uses {model_dtype} — inputs will be cast accordingly.")
+        except StopIteration:
+            pass
+
         if device.type == "cuda":
             torch.backends.cudnn.benchmark = True
 
@@ -385,7 +406,7 @@ class ExecutionService:
             if not batch_tensors:
                 return
 
-            input_batch = torch.stack(batch_tensors).to(device)
+            input_batch = torch.stack(batch_tensors).to(device=device, dtype=model_dtype)
 
             if processed_count == 0 and thop and model:
                 try:
@@ -395,6 +416,9 @@ class ExecutionService:
                     print(f"THOP Warning: {thop_e}")
 
             outputs = model(input_batch)
+            # Cast outputs back to float32 for loss computation & metrics
+            if outputs.dtype != torch.float32:
+                outputs = outputs.float()
             probs_batch = torch.nn.functional.softmax(outputs, dim=1)
             _, predicted_batch = torch.max(outputs, 1)
 
@@ -761,6 +785,24 @@ class ExecutionService:
                 label_name = label_map.get(label_idx, str(label_idx))
                 yield sample_id, img, label_name
 
+    @staticmethod
+    def _is_int8_quantized_model(model: nn.Module) -> bool:
+        """Return True if the model contains INT8 quantized operations.
+
+        INT8 quantized layers (per_channel_affine, per_tensor_affine) only
+        support CPU.  FP16/BF16 models are regular nn.Modules with reduced
+        precision weights and are GPU-compatible, so they are NOT flagged.
+        """
+        for m in model.modules():
+            # Quantized Linear / Conv layers store packed params
+            if hasattr(m, '_packed_params'):
+                return True
+            # Fallback: check module path for known quantized namespaces
+            mod_path = getattr(type(m), '__module__', '') or ''
+            if '.quantized.' in mod_path:
+                return True
+        return False
+
     def _load_model_from_disk(self, model_doc: dict, device: torch.device, num_classes: int = 10) -> nn.Module:
         """
         Loads the model from disk based on format and definition.
@@ -819,8 +861,19 @@ class ExecutionService:
             return model
 
         elif fmt == ModelFormat.FULL_MODEL:
-            model = torch.load(file_path, map_location=device, weights_only=False)
+            # Load on CPU first so INT8 quantized tensors don't hit
+            # unsupported CUDA qschemes (e.g. per_channel_affine).
+            # FP16/BF16 models are NOT INT8-quantized and will be moved
+            # to GPU normally.
+            model = torch.load(file_path, map_location="cpu", weights_only=False)
             model.eval()
+            if device.type != "cpu" and not self._is_int8_quantized_model(model):
+                model.to(device)
+            elif device.type != "cpu" and self._is_int8_quantized_model(model):
+                print(
+                    f"INT8 quantized model detected — forcing CPU execution "
+                    f"(requested: {device}). FP16/BF16 models run on GPU."
+                )
             return model
 
         elif fmt == ModelFormat.TORCHSCRIPT:

@@ -1119,3 +1119,404 @@ class ReportService:
         )
         await report.insert()
         return report
+
+    # ================================================================ #
+    # QUANTIZATION REPORT
+    # ================================================================ #
+    async def generate_quantization_report(
+        self,
+        quantization,
+        model_name: str,
+        dataset_name: str,
+    ) -> Report:
+        """Generate a comprehensive PDF report for a completed quantization."""
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"quantization_report_{quantization.id}_{timestamp}.pdf"
+        file_path = os.path.join(self.upload_dir, filename)
+
+        PAGE_W, _ = letter
+        MARGIN = 40
+        CW = PAGE_W - 2 * MARGIN
+
+        doc = SimpleDocTemplate(
+            file_path, pagesize=letter,
+            title="CleanAI+ Quantization Report", author="CleanAI+",
+            rightMargin=MARGIN, leftMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN,
+        )
+
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # ---- colours -------------------------------------------------- #
+        C_PRIMARY    = colors.HexColor('#2563eb')
+        C_SECONDARY  = colors.HexColor('#1e40af')
+        C_SUCCESS    = colors.HexColor('#10b981')
+        C_WARN       = colors.HexColor('#f59e0b')
+        C_PURPLE     = colors.HexColor('#7c3aed')
+        C_INDIGO     = colors.HexColor('#6366f1')
+        C_GRAY_800   = colors.HexColor('#1f2937')
+        C_GRAY_500   = colors.HexColor('#6b7280')
+        C_GRAY_200   = colors.HexColor('#e5e7eb')
+        C_GRAY_50    = colors.HexColor('#f9fafb')
+        C_BAR_BEFORE = colors.HexColor('#9ca3af')
+        C_BAR_AFTER  = colors.HexColor('#6366f1')
+
+        # ---- paragraph styles ----------------------------------------- #
+        title_style = ParagraphStyle(
+            'QT', parent=styles['Title'],
+            fontSize=24, leading=30, textColor=C_SECONDARY,
+            alignment=1, spaceAfter=6,
+        )
+        subtitle_style = ParagraphStyle(
+            'QS', parent=styles['Normal'],
+            fontSize=10, textColor=C_GRAY_500, alignment=1, spaceAfter=20,
+        )
+        section_style = ParagraphStyle(
+            'QSec', parent=styles['Heading2'],
+            fontSize=13, textColor=C_PRIMARY,
+            spaceBefore=16, spaceAfter=8,
+        )
+        note_style = ParagraphStyle(
+            'QN', parent=styles['Italic'],
+            fontSize=8, textColor=C_GRAY_500,
+        )
+
+        # ---- helpers -------------------------------------------------- #
+        def fmt_mb(b):
+            return f"{int(b)/(1024*1024):.2f} MB"
+
+        def pct_color(pct):
+            if pct >= 40:  return C_SUCCESS
+            if pct >= 20:  return C_WARN
+            return C_PURPLE
+
+        def kv_table(rows):
+            t = Table(rows, colWidths=[180, CW - 180])
+            t.setStyle(TableStyle([
+                ('GRID',          (0, 0), (-1, -1), 0.5,  C_GRAY_200),
+                ('FONTNAME',      (0, 0), (0,  -1), 'Helvetica-Bold'),
+                ('FONTNAME',      (1, 0), (1,  -1), 'Helvetica'),
+                ('FONTSIZE',      (0, 0), (-1, -1), 9),
+                ('TEXTCOLOR',     (0, 0), (0,  -1), C_SECONDARY),
+                ('TEXTCOLOR',     (1, 0), (1,  -1), C_GRAY_800),
+                ('BACKGROUND',    (0, 0), (0,  -1), C_GRAY_50),
+                ('BACKGROUND',    (1, 0), (1,  -1), colors.white),
+                ('TOPPADDING',    (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+            ]))
+            return t
+
+        def stat_cards(cards):
+            while len(cards) % 3:
+                cards.append(("", "", ""))
+            rows = []
+            for i in range(0, len(cards), 3):
+                row = []
+                for label, value, note in cards[i:i+3]:
+                    cell = []
+                    if label:
+                        cell.append(Paragraph(f'<font color="#6b7280" size="8">{label}</font>', styles['Normal']))
+                        cell.append(Spacer(1, 4))
+                        cell.append(Paragraph(f'<font color="#1e40af" size="14"><b>{value}</b></font>', styles['Normal']))
+                        if note:
+                            cell.append(Spacer(1, 2))
+                            cell.append(Paragraph(f'<font color="#6366f1" size="8">{note}</font>', styles['Normal']))
+                    row.append(cell)
+                rows.append(row)
+            cw3 = CW / 3
+            t = Table(rows, colWidths=[cw3, cw3, cw3])
+            t.setStyle(TableStyle([
+                ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+                ('BACKGROUND',    (0, 0), (-1, -1), colors.white),
+                ('TOPPADDING',    (0, 0), (-1, -1), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 14),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 12),
+                ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
+            ]))
+            return t
+
+        def cmp_bar(label_a, val_a, fmt_a, label_b, val_b, fmt_b, reduction_pct=None, title=""):
+            w, h = CW - 4, (88 if title else 72)
+            d = Drawing(w, h)
+            TITLE_H = 16 if title else 0
+            LBL_W, VAL_R = 70, 88
+            bar_area = w - LBL_W - VAL_R
+            max_v = max(val_a, val_b, 1)
+
+            if title:
+                d.add(String(0, h - 12, title, fontName='Helvetica-Bold',
+                             fontSize=9, fillColor=C_GRAY_800))
+
+            bw_a = max(3, int(val_a / max_v * bar_area))
+            y_a = 44 + TITLE_H // 2
+            d.add(String(0, y_a + 3, "Before", fontName='Helvetica', fontSize=8, fillColor=C_GRAY_500))
+            d.add(Rect(LBL_W, y_a - 1, bw_a, 16, fillColor=C_BAR_BEFORE, strokeColor=None))
+            d.add(String(LBL_W + bw_a + 5, y_a + 3, fmt_a,
+                         fontName='Helvetica', fontSize=8, fillColor=C_GRAY_800))
+
+            bw_b = max(3, int(val_b / max_v * bar_area))
+            y_b = 18 + TITLE_H // 2
+            d.add(String(0, y_b + 3, "After", fontName='Helvetica-Bold', fontSize=8, fillColor=C_GRAY_800))
+            d.add(Rect(LBL_W, y_b - 1, bw_b, 16, fillColor=C_BAR_AFTER, strokeColor=None))
+            d.add(String(LBL_W + bw_b + 5, y_b + 3, fmt_b,
+                         fontName='Helvetica-Bold', fontSize=8, fillColor=C_INDIGO))
+
+            if reduction_pct is not None and reduction_pct > 0:
+                bx = w - 62
+                by = TITLE_H // 2 + 22
+                d.add(Rect(bx, by, 60, 20, fillColor=pct_color(reduction_pct),
+                           strokeColor=None, rx=4, ry=4))
+                d.add(String(bx + 30, by + 5, f"\u25bc {reduction_pct}%",
+                             fontName='Helvetica-Bold', fontSize=8.5,
+                             fillColor=colors.white, textAnchor='middle'))
+            return d
+
+        def bar_section(drawing):
+            t = Table([[drawing]], colWidths=[CW])
+            t.setStyle(TableStyle([
+                ('TOPPADDING',    (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+                ('BACKGROUND',    (0, 0), (-1, -1), colors.white),
+                ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+            ]))
+            return t
+
+        # ---- pull data ------------------------------------------------ #
+        result = quantization.result or {}
+        config = quantization.config or {}
+
+        quant_type      = config.get("quantization_type", result.get("quantization_type", "dynamic"))
+        bit_width       = config.get("bit_width", result.get("bit_width", "int8"))
+        backend         = config.get("backend", "fbgemm")
+        orig_bytes      = int(result.get("original_size_bytes", 0))
+        quant_bytes     = int(result.get("quantized_size_bytes", 0))
+        size_pct        = float(result.get("size_reduction_pct", 0))
+        output_name     = result.get("output_model_name", "\u2014")
+        before_ms       = float(result.get("before_inference_ms", 0))
+        after_ms        = float(result.get("after_inference_ms", 0))
+        speedup         = float(result.get("speedup_factor", 0))
+        before_thr      = float(result.get("before_throughput", 0))
+        after_thr       = float(result.get("after_throughput", 0))
+        rec_device      = result.get("recommended_device", "\u2014")
+        device_str      = config.get("device", "cpu")
+        per_channel     = config.get("per_channel", True)
+        calib_samples   = config.get("calibration_num_samples", "\u2014")
+        target_layers   = config.get("target_layer_types", ["all"])
+
+        latency_red = round((1 - after_ms / before_ms) * 100, 1) if before_ms > 0 else 0
+        thr_gain    = round((after_thr / max(before_thr, 1e-9) - 1) * 100, 1) if before_thr else 0
+
+        if quantization.started_at and quantization.completed_at:
+            dur_s = int((quantization.completed_at - quantization.started_at).total_seconds())
+            duration_str = f"{dur_s // 60}m {dur_s % 60}s" if dur_s >= 60 else f"{dur_s}s"
+        else:
+            duration_str = "\u2014"
+
+        quant_type_label = {
+            "dynamic": "Dynamic Quantization (INT8)",
+            "static": "Static Quantization (PTQ)",
+            "weight_only": "Weight-Only Quantization",
+            "fp16": "Half Precision (FP16)",
+            "bf16": "BFloat16 (BF16)",
+        }.get(quant_type, quant_type)
+
+        # ================================================================ #
+        # HEADER
+        # ================================================================ #
+        logo_d = Drawing(CW, 52)
+        logo_bg = colors.HexColor('#6366f1')
+        logo_d.add(Rect(0, 10, 32, 32, rx=6, ry=6, fillColor=logo_bg, strokeColor=None))
+        bolt_pts = [17.33, 28.67, 17.33, 38.00, 5.33, 23.33,
+                    14.67, 23.33, 14.67, 14.00, 26.67, 28.67]
+        logo_d.add(Polygon(bolt_pts, fillColor=colors.white, strokeColor=None))
+        logo_d.add(String(42, 20, "CleanAI+", fontName="Helvetica-Bold",
+                          fontSize=22, fillColor=C_GRAY_800))
+        elements.append(logo_d)
+        elements.append(Paragraph("Quantization Report", title_style))
+        elements.append(Paragraph(
+            f"Generated on {datetime.utcnow().strftime('%d %B %Y, %H:%M')} UTC",
+            subtitle_style,
+        ))
+        div = Drawing(CW, 4)
+        div.add(Rect(0, 1, CW, 2.5, fillColor=C_INDIGO, strokeColor=None))
+        elements.append(div)
+        elements.append(Spacer(1, 12))
+
+        # ================================================================ #
+        # 1. OVERVIEW
+        # ================================================================ #
+        elements.append(Paragraph("1. Quantization Overview", section_style))
+        elements.append(kv_table([
+            ["Quantization ID",      str(quantization.id)],
+            ["Status",               "\u2713  Completed"],
+            ["Quantization Type",    quant_type_label],
+            ["Bit Width / Precision", str(bit_width).upper()],
+            ["Original Model",       model_name],
+            ["Quantized Model",      output_name],
+            ["Dataset",              dataset_name],
+            ["Started",              quantization.started_at.strftime('%Y-%m-%d %H:%M:%S')
+                                     if quantization.started_at else "\u2014"],
+            ["Completed",            quantization.completed_at.strftime('%Y-%m-%d %H:%M:%S')
+                                     if quantization.completed_at else "\u2014"],
+            ["Duration",             duration_str],
+            ["Device Used",          device_str.upper()],
+        ]))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 2. CONFIGURATION
+        # ================================================================ #
+        elements.append(Paragraph("2. Quantization Configuration", section_style))
+        cfg_rows = [
+            ["Quantization Type",  quant_type_label],
+            ["Bit Width",          str(bit_width).upper()],
+            ["Backend",            str(backend).upper()],
+            ["Per-Channel",        "Yes" if per_channel else "No"],
+            ["Target Layer Types", ", ".join(str(t) for t in target_layers) if target_layers else "All"],
+        ]
+        if quant_type == "static":
+            cfg_rows.append(["Calibration Samples", str(calib_samples)])
+        elements.append(kv_table(cfg_rows))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 3. RECOMMENDED DEPLOYMENT TARGET
+        # ================================================================ #
+        elements.append(Paragraph("3. Recommended Deployment Target", section_style))
+        device_d = Drawing(CW, 48)
+        device_d.add(Rect(0, 6, CW, 36, fillColor=colors.HexColor('#eef2ff'),
+                          strokeColor=C_INDIGO, strokeWidth=1, rx=6, ry=6))
+        device_d.add(String(16, 20, f"\u2699  {rec_device}",
+                            fontName='Helvetica-Bold', fontSize=12, fillColor=C_INDIGO))
+        elements.append(device_d)
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph(
+            "Based on the quantization type and bit width, the quantized model is "
+            "recommended to be deployed on the target shown above for optimal performance.",
+            note_style,
+        ))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 4. COMPRESSION STATISTICS
+        # ================================================================ #
+        elements.append(Paragraph("4. Compression Statistics", section_style))
+        elements.append(stat_cards([
+            ("File Size \u2014 Before", fmt_mb(orig_bytes), ""),
+            ("File Size \u2014 After",  fmt_mb(quant_bytes),
+             f"\u25bc {size_pct:.1f}% reduction"),
+            ("Size Reduction",          f"{size_pct:.1f}%", ""),
+        ]))
+        elements.append(Spacer(1, 6))
+        elements.append(bar_section(
+            cmp_bar("Before", orig_bytes, fmt_mb(orig_bytes),
+                    "After",  quant_bytes, fmt_mb(quant_bytes),
+                    reduction_pct=round(size_pct, 1), title="File Size on Disk")
+        ))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 5. RUNTIME PERFORMANCE
+        # ================================================================ #
+        elements.append(Paragraph("5. Runtime Performance", section_style))
+        if before_ms > 0 or after_ms > 0:
+            perf_cards = []
+            if before_ms > 0:
+                perf_cards.append(("Inference Latency \u2014 Before", f"{before_ms:.2f} ms/img", ""))
+            if after_ms > 0:
+                perf_cards.append(("Inference Latency \u2014 After", f"{after_ms:.2f} ms/img",
+                                   f"\u25bc {latency_red}% faster" if before_ms > 0 else ""))
+            if speedup > 0:
+                perf_cards.append(("Speedup Factor", f"{speedup:.2f}\u00d7", ""))
+            if before_thr > 0:
+                perf_cards.append(("Throughput \u2014 Before", f"{before_thr:.1f} img/s", ""))
+            if after_thr > 0:
+                perf_cards.append(("Throughput \u2014 After", f"{after_thr:.1f} img/s",
+                                   f"\u25b2 {thr_gain}%" if thr_gain > 0 else ""))
+            if thr_gain > 0:
+                perf_cards.append(("Throughput Gain", f"+{thr_gain}%", ""))
+            elements.append(stat_cards(perf_cards))
+            if before_ms > 0 and after_ms > 0:
+                elements.append(Spacer(1, 6))
+                elements.append(bar_section(
+                    cmp_bar("Before", before_ms, f"{before_ms:.2f} ms",
+                            "After",  after_ms,  f"{after_ms:.2f} ms",
+                            reduction_pct=latency_red,
+                            title="Inference Latency per Image (lower is better)")
+                ))
+        else:
+            elements.append(Paragraph(
+                "Inference timing not available \u2014 measurement was skipped or failed.",
+                note_style,
+            ))
+        elements.append(Spacer(1, 10))
+
+        # ================================================================ #
+        # 6. SUMMARY TABLE
+        # ================================================================ #
+        elements.append(Paragraph("6. Summary", section_style))
+        summary_rows = [["Metric", "Before", "After", "Change"]]
+        summary_rows.append(["File Size", fmt_mb(orig_bytes), fmt_mb(quant_bytes),
+                             f"\u25bc {size_pct:.1f}%"])
+        if before_ms > 0 and after_ms > 0:
+            summary_rows.append(["Inference Latency",
+                                  f"{before_ms:.2f} ms", f"{after_ms:.2f} ms",
+                                  f"\u25bc {latency_red}%"])
+        if before_thr > 0 and after_thr > 0:
+            summary_rows.append(["Throughput",
+                                  f"{before_thr:.1f} img/s", f"{after_thr:.1f} img/s",
+                                  f"\u25b2 {thr_gain}%"])
+        summary_rows.append(["Recommended Device", "\u2014", rec_device, ""])
+        cw4 = CW / 4
+        sum_tbl = Table(summary_rows, colWidths=[cw4 * 1.2, cw4 * 0.9, cw4 * 0.9, cw4 * 1.0])
+        sum_tbl.setStyle(TableStyle([
+            ('BACKGROUND',    (0, 0), (-1,  0), C_INDIGO),
+            ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+            ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1,  0), 9.5),
+            ('FONTNAME',      (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE',      (0, 1), (-1, -1), 9),
+            ('GRID',          (0, 0), (-1, -1), 0.5, C_GRAY_200),
+            ('TOPPADDING',    (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+            ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, C_GRAY_50]),
+            ('TEXTCOLOR',     (-1, 1), (-1, -1), C_INDIGO),
+            ('FONTNAME',      (-1, 1), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(sum_tbl)
+
+        # Footer
+        elements.append(Spacer(1, 24))
+        foot_div = Drawing(CW, 4)
+        foot_div.add(Rect(0, 1, CW, 1, fillColor=C_GRAY_200, strokeColor=None))
+        elements.append(foot_div)
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(
+            f"Generated automatically by CleanAI+ \u00b7 "
+            f"Quantization ID: {quantization.id} \u00b7 "
+            f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+            note_style,
+        ))
+
+        doc.build(elements)
+
+        report = Report(
+            workspace_id=quantization.workspace_id,
+            reference_id=quantization.id,
+            reference_type=ReportType.QUANTIZATION,
+            name=f"Quantization Report: {model_name} \u2192 {output_name}",
+            file_path=file_path,
+            metadata={
+                "model_name":          model_name,
+                "output_model_name":   output_name,
+                "quantization_type":   quant_type,
+                "size_reduction_pct":  size_pct,
+                "recommended_device":  rec_device,
+            },
+        )
+        await report.insert()
+        return report

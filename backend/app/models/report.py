@@ -9,6 +9,7 @@ class ReportType(str, Enum):
     DATASET = "dataset"
     MODEL = "model"
     OPTIMIZATION = "optimization"
+    QUANTIZATION = "quantization"
 
 class Report(Document):
     workspace_id: PydanticObjectId

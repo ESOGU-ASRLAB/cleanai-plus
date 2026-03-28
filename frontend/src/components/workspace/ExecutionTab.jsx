@@ -24,7 +24,15 @@ import {
   FiTrash2,
   FiStar,
   FiZap,
+  FiLock,
 } from "react-icons/fi";
+
+// INT8 quantization types that only run on CPU
+const INT8_QUANT_TYPES = ["dynamic", "static", "weight_only"];
+const isGpuIncompatible = (model) =>
+  model?.is_optimized &&
+  model?.optimization_type &&
+  INT8_QUANT_TYPES.includes(model.optimization_type);
 
 const EXECUTION_STEPS = [
   { id: 1, title: "Select Model" },
@@ -347,7 +355,13 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
               .map((model) => (
               <div
                 key={model._id}
-                onClick={() => setSelectedModel(model)}
+                onClick={() => {
+                  setSelectedModel(model);
+                  // Force CPU if model is INT8-quantized (GPU incompatible)
+                  if (isGpuIncompatible(model) && config.device !== "cpu") {
+                    setConfig((prev) => ({ ...prev, device: "cpu" }));
+                  }
+                }}
                 className={`p-4 border rounded-lg cursor-pointer transition-all ${
                   selectedModel?._id === model._id
                     ? "border-primary-500 bg-primary-50 ring-1 ring-primary-500"
@@ -516,13 +530,24 @@ const ExecutionTab = ({ workspace, initialExecutionId, isReadonly = false }) => 
                       className="block w-full rounded-md border-gray-300 pl-3 focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2"
                     >
                       <option value="cpu">CPU</option>
-                      <option value="cuda">CUDA (GPU) ★</option>
-                      <option value="mps">MPS (Mac)</option>
+                      <option value="cuda" disabled={isGpuIncompatible(selectedModel)}>
+                        CUDA (GPU) {isGpuIncompatible(selectedModel) ? "— INT8 not supported" : "★"}
+                      </option>
+                      <option value="mps" disabled={isGpuIncompatible(selectedModel)}>
+                        MPS (Mac) {isGpuIncompatible(selectedModel) ? "— INT8 not supported" : ""}
+                      </option>
                     </select>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Hardware accelerator for the execution.
-                  </p>
+                  {isGpuIncompatible(selectedModel) ? (
+                    <p className="mt-1 text-xs text-amber-600 flex items-center gap-1">
+                      <FiLock className="w-3 h-3" />
+                      INT8 quantized models ({selectedModel.optimization_type}) only run on CPU.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Hardware accelerator for the execution.
+                    </p>
+                  )}
                 </div>
 
                 {/* Shuffle Dataset */}
