@@ -146,7 +146,7 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
     bn_scale_reg: 0.00001,
     bn_scale_group_lasso: false,
     calibration_num_samples: 16,
-    coverage_metric: "normalized_mean",
+    coverage_metric: "frequency",
     wanda_weight_norm: "l2",
     ignore_head: true,
     ignored_layer_names: [],
@@ -312,7 +312,7 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
       bn_scale_reg: 0.00001,
       bn_scale_group_lasso: false,
       calibration_num_samples: 16,
-      coverage_metric: "normalized_mean",
+      coverage_metric: "frequency",
       wanda_weight_norm: "l2",
       ignore_head: true,
       ignored_layer_names: [],
@@ -806,8 +806,8 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                     }
                     className="block w-full rounded-md border border-gray-300 pl-2 pr-8 py-1.5 text-sm focus:border-primary-500 focus:ring-primary-500"
                   >
-                    <option value="normalized_mean">Normalized Mean ✨</option>
-                    <option value="frequency">Activation Frequency</option>
+                    <option value="normalized_mean">Normalized Mean</option>
+                    <option value="frequency">Activation Frequency ✨</option>
                     <option value="mean_absolute">Mean Absolute</option>
                     <option value="combined">Combined (60/40)</option>
                   </select>
