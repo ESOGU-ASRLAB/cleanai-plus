@@ -677,35 +677,69 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Pruning Ratio */}
+          {/* min=1, max=99 → center = (1+99)/2 = 50, so 50% is exactly at mid-track AND 1–9% is reachable */}
           <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Pruning Ratio:{" "}
-              <span className="text-primary-600 font-bold">
-                {Math.round(config.pruning_ratio * 100)}%
-              </span>
-            </label>
-            <input
-              type="range"
-              min="0.1"
-              max="0.9"
-              step="0.05"
-              value={config.pruning_ratio}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  pruning_ratio: parseFloat(e.target.value),
-                })
-              }
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>10% (light)</span>
-              <span>90% (aggressive)</span>
-            </div>
-            <p className="mt-2 text-xs text-gray-500">
-              Fraction of channels to remove. Higher values = smaller model but
-              possible accuracy loss.
-            </p>
+            {(() => {
+              const pct = Math.round(config.pruning_ratio * 100);
+              const { labelColor, trackColor, badgeBg, badgeText, zone } =
+                pct < 10
+                  ? { labelColor: "text-green-600",  trackColor: "accent-green-500",  badgeBg: "bg-green-100",  badgeText: "text-green-700",  zone: "Conservative" }
+                  : pct < 20
+                  ? { labelColor: "text-teal-600",   trackColor: "accent-teal-500",   badgeBg: "bg-teal-100",   badgeText: "text-teal-700",   zone: "Mild" }
+                  : pct < 50
+                  ? { labelColor: "text-amber-600",  trackColor: "accent-amber-500",  badgeBg: "bg-amber-100",  badgeText: "text-amber-700",  zone: "Moderate" }
+                  : { labelColor: "text-red-600",    trackColor: "accent-red-500",    badgeBg: "bg-red-100",    badgeText: "text-red-700",    zone: "Aggressive" };
+              return (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Pruning Ratio:{" "}
+                      <span className={`font-bold ${labelColor}`}>{pct}%</span>
+                    </label>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${badgeBg} ${badgeText}`}>
+                      {zone}
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="1"
+                    max="99"
+                    step="1"
+                    value={Math.round(config.pruning_ratio * 100)}
+                    onChange={(e) =>
+                      setConfig({ ...config, pruning_ratio: parseInt(e.target.value) / 100 })
+                    }
+                    className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer ${trackColor}`}
+                  />
+
+                  {/*
+                    Zone bar: gradient stops computed from slider formula (v-1)/(99-1)*100
+                    Boundaries at v=9.5 → 8.67%,  v=19.5 → 18.88%,  v=49.5 → 49.49%
+                    Label midpoints:  4.34%  |  13.78%  |  34.18%  |  74.75%
+                  */}
+                  <div className="relative w-full mt-2 select-none">
+                    <div
+                      className="w-full h-1.5 rounded"
+                      style={{
+                        background:
+                          "linear-gradient(to right, #22c55e 0% 8.67%, #14b8a6 8.67% 18.88%, #f59e0b 18.88% 49.49%, #ef4444 49.49% 100%)",
+                      }}
+                    />
+                    <div className="relative h-4 mt-0.5">
+                      <span className="absolute text-xs text-green-500 font-medium whitespace-nowrap" style={{ left: "4.34%",  transform: "translateX(-50%)" }}>1–9%</span>
+                      <span className="absolute text-xs text-teal-500  font-medium whitespace-nowrap" style={{ left: "13.78%", transform: "translateX(-50%)" }}>10–19%</span>
+                      <span className="absolute text-xs text-amber-500 font-medium whitespace-nowrap" style={{ left: "34.18%", transform: "translateX(-50%)" }}>20–49%</span>
+                      <span className="absolute text-xs text-red-500   font-medium whitespace-nowrap" style={{ left: "74.75%", transform: "translateX(-50%)" }}>50–99%</span>
+                    </div>
+                  </div>
+
+                  <p className="mt-2 text-xs text-gray-500">
+                    Fraction of channels to remove. Higher values = smaller model but possible accuracy loss.
+                  </p>
+                </>
+              );
+            })()}
           </div>
 
           {/* Importance Type + Criterion-Specific Parameters (side-by-side) */}
