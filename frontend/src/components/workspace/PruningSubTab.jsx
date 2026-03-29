@@ -139,6 +139,7 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
     iterative_steps: 1,
     device: "cuda",
     output_name_postfix: "_magnitude_l1_pruned",
+    custom_output_name: "",
     global_pruning: false,
     max_pruning_ratio: 1.0,
     round_to: "",
@@ -151,6 +152,9 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
     ignore_head: true,
     ignored_layer_names: [],
   });
+
+  // Custom output name toggle (UI-only, not part of config)
+  const [useCustomName, setUseCustomName] = useState(false);
 
   // Layer list for ignored_layers dropdown
   const [modelLayers, setModelLayers] = useState([]);
@@ -305,6 +309,7 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
       iterative_steps: 1,
       device: "cuda",
       output_name_postfix: "_magnitude_l1_pruned",
+      custom_output_name: "",
       global_pruning: false,
       max_pruning_ratio: 1.0,
       round_to: "",
@@ -317,6 +322,7 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
       ignore_head: true,
       ignored_layer_names: [],
     });
+    setUseCustomName(false);
     setModelLayers([]);
   };
 
@@ -1097,23 +1103,52 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
                 </p>
               </div>
 
-              {/* Output Name Postfix */}
+              {/* Output Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Output Name Postfix
+                  {useCustomName ? "Output Model Name" : "Output Name Postfix"}
                 </label>
-                <input
-                  type="text"
-                  value={config.output_name_postfix}
-                  onChange={(e) =>
-                    setConfig({ ...config, output_name_postfix: e.target.value })
-                  }
-                  placeholder={`_${config.importance_type}_pruned`}
-                  className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
-                />
+                {useCustomName ? (
+                  <input
+                    type="text"
+                    value={config.custom_output_name}
+                    onChange={(e) =>
+                      setConfig({ ...config, custom_output_name: e.target.value })
+                    }
+                    placeholder="my_pruned_model"
+                    className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={config.output_name_postfix}
+                    onChange={(e) =>
+                      setConfig({ ...config, output_name_postfix: e.target.value })
+                    }
+                    placeholder={`_${config.importance_type}_pruned`}
+                    className="block w-full rounded-md border border-gray-300 pl-3 py-2 focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+                  />
+                )}
+                {/* Toggle between postfix and full custom name */}
+                <button
+                  type="button"
+                  onClick={() => setUseCustomName((v) => !v)}
+                  className="mt-1.5 flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 transition-colors"
+                >
+                  <span className={`inline-flex w-7 h-4 rounded-full transition-colors ${
+                    useCustomName ? "bg-primary-500" : "bg-gray-300"
+                  }`}>
+                    <span className={`inline-block w-3 h-3 m-0.5 rounded-full bg-white shadow transition-transform ${
+                      useCustomName ? "translate-x-3" : "translate-x-0"
+                    }`} />
+                  </span>
+                  {useCustomName ? "Using custom name" : "Use custom name instead"}
+                </button>
                 <p className="mt-1 text-xs text-gray-500">
                   <code className="bg-gray-100 px-1 rounded font-mono text-xs">
-                    {selectedModel?.name}{config.output_name_postfix}
+                    {useCustomName
+                      ? (config.custom_output_name || <span className="text-gray-400">my_pruned_model</span>)
+                      : <>{selectedModel?.name}{config.output_name_postfix}</>}
                   </code>
                 </p>
               </div>
@@ -1319,8 +1354,9 @@ const PruningSubTab = ({ workspace, isReadonly = false }) => {
             Output Model Name
           </dt>
           <dd className="text-sm font-medium text-primary-600 font-mono">
-            {selectedModel?.name}
-            {config.output_name_postfix}
+            {config.custom_output_name
+              ? config.custom_output_name
+              : <>{selectedModel?.name}{config.output_name_postfix}</>}
           </dd>
         </div>
         <div className="bg-white p-4 rounded-lg border border-gray-100 sm:col-span-2">

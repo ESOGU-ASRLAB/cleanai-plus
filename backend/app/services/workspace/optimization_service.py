@@ -209,6 +209,7 @@ class OptimizationService:
             importance_type = config.get("importance_type", "magnitude_l1")
             iterative_steps = max(1, int(config.get("iterative_steps", 1)))
             device_str = config.get("device", "cpu")
+            custom_output_name = config.get("custom_output_name", "").strip()
             output_postfix = config.get("output_name_postfix", f"_{importance_type}_pruned")
             global_pruning = bool(config.get("global_pruning", False))
             max_pruning_ratio = float(config.get("max_pruning_ratio", 1.0))
@@ -364,7 +365,7 @@ class OptimizationService:
             os.makedirs(workspace_path, exist_ok=True)
 
             original_name = model_doc["name"]
-            new_model_name = f"{original_name}{output_postfix}"
+            new_model_name = custom_output_name if custom_output_name else f"{original_name}{output_postfix}"
             safe_filename = new_model_name.replace(" ", "_").replace("/", "_")
             new_file_path = os.path.join(workspace_path, f"{safe_filename}.pth")
 
