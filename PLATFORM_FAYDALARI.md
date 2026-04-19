@@ -14,14 +14,14 @@ Bir derin öğrenme modelinin eğitimden sonraki yaşam döngüsü — değerlen
 
 Bir modeli belirli bir veri seti üzerinde elle değerlendirmek; veri yükleme, önişleme uygulaması, batch inference döngüsü ve metrik hesaplama adımlarını içeren uzun bir süreçtir. CleanAI+, bu sürecin tamamını otomatikleştirir ve tek bir butona basarak aşağıdaki metriklerin tamamını hesaplar:
 
-| Metrik | Açıklama |
-|---|---|
-| **Accuracy** | Genel doğruluk oranı |
-| **Top-5 Accuracy** | En yüksek olasılıklı 5 tahmin içinde doğru sınıfın bulunma oranı |
-| **Precision / Recall / F1** | Ağırlıklı ortalama (weighted), sınıf dengesizliğine karşı robust |
-| **Loss** | Ortalama cross-entropy kaybı |
-| **Confusion Matrix** | Tam $N \times N$ matris; modelin hangi sınıfları karıştırdığını görselleştirir |
-| **Per-Class Accuracy** | Her sınıf için ayrı doğruluk, en başarılı ve en başarısız sınıflar listelenir |
+| Metrik                      | Açıklama                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| **Accuracy**                | Genel doğruluk oranı                                                           |
+| **Top-5 Accuracy**          | En yüksek olasılıklı 5 tahmin içinde doğru sınıfın bulunma oranı               |
+| **Precision / Recall / F1** | Ağırlıklı ortalama (weighted), sınıf dengesizliğine karşı robust               |
+| **Loss**                    | Ortalama cross-entropy kaybı                                                   |
+| **Confusion Matrix**        | Tam $N \times N$ matris; modelin hangi sınıfları karıştırdığını görselleştirir |
+| **Per-Class Accuracy**      | Her sınıf için ayrı doğruluk, en başarılı ve en başarısız sınıflar listelenir  |
 
 Bu metriklerin elle hesaplanması, özellikle büyük veri setlerinde saatler alabilen ve hata yapmaya açık bir süreçtir. Platform bu hesaplamaları arka planda, thread pool üzerinde yürüterek asenkron biçimde tamamlar; kullanıcı süreç boyunca ilerlemeyi gerçek zamanlı takip edebilir.
 
@@ -29,11 +29,11 @@ Bu metriklerin elle hesaplanması, özellikle büyük veri setlerinde saatler al
 
 Performans değerlendirmesinin ötesinde, platform modelin **hesaplama maliyetini** de ölçer:
 
-| Metrik | Birim | Açıklama |
-|---|---|---|
-| **GFLOPs/örnek** | 10⁹ kayan nokta işlemi | `thop` kütüphanesiyle ölçülen model karmaşıklığı |
-| **Çıkarım süresi** | ms/örnek | Tek bir görüntü için ortalama gecikme |
-| **Toplam çalışma süresi** | saniye | Tüm veri seti üzerindeki toplam süre |
+| Metrik                    | Birim                  | Açıklama                                         |
+| ------------------------- | ---------------------- | ------------------------------------------------ |
+| **GFLOPs/örnek**          | 10⁹ kayan nokta işlemi | `thop` kütüphanesiyle ölçülen model karmaşıklığı |
+| **Çıkarım süresi**        | ms/örnek               | Tek bir görüntü için ortalama gecikme            |
+| **Toplam çalışma süresi** | saniye                 | Tüm veri seti üzerindeki toplam süre             |
 
 Bu metrikler, araştırmacıların model mimarilerini yalnızca doğruluk değil; **verimlilik açısından da** karşılaştırmasına olanak tanımaktadır.
 
@@ -45,13 +45,13 @@ CleanAI+'ın öne çıkan özelliklerinden biri, her çalıştırma işlemi sır
 
 ### 3.1. Ölçülen Büyüklükler
 
-| Metrik | Birim | Açıklama |
-|---|---|---|
-| **Toplam enerji tüketimi** | Joule | Tüm veri seti üzerindeki inference süresinde harcanan enerji |
-| **Örnek başı enerji** | J/örnek | Tek bir görüntünün işlenmesi için harcanan enerji |
-| **GFLOPs/Joule** | — | Enerji başına gerçekleştirilen hesaplama miktarı (enerji verimliliği) |
-| **CO₂ emisyonu** | gram | Toplam karbon ayak izi |
-| **CO₂ emisyonu/dakika** | g/dak | Çalışma hızına göre normalize edilmiş emisyon |
+| Metrik                     | Birim   | Açıklama                                                              |
+| -------------------------- | ------- | --------------------------------------------------------------------- |
+| **Toplam enerji tüketimi** | Joule   | Tüm veri seti üzerindeki inference süresinde harcanan enerji          |
+| **Örnek başı enerji**      | J/örnek | Tek bir görüntünün işlenmesi için harcanan enerji                     |
+| **GFLOPs/Joule**           | —       | Enerji başına gerçekleştirilen hesaplama miktarı (enerji verimliliği) |
+| **CO₂ emisyonu**           | gram    | Toplam karbon ayak izi                                                |
+| **CO₂ emisyonu/dakika**    | g/dak   | Çalışma hızına göre normalize edilmiş emisyon                         |
 
 ### 3.2. Sağlanan Fayda
 
@@ -65,13 +65,13 @@ Derin öğrenme modellerinin çevresel maliyeti giderek daha fazla sorgulanmakta
 
 CleanAI+, budama öncesi ve sonrası modeli otomatik olarak kıyaslayarak aşağıdaki değişimleri ölçer:
 
-| Metrik | Açıklama |
-|---|---|
-| **Parametre azalması (%)** | Toplam model parametresindeki yüzdelik düşüş |
-| **FLOPs azalması (%)** | Hesaplama karmaşıklığındaki yüzdelik düşüş (FLOPs = 2 × MACs) |
-| **Çıkarım süresi (ms) — önce/sonra** | Budama öncesi ve sonrası gecikme, 3 tur ortanca ölçüm |
-| **Throughput — önce/sonra** | Saniyede işlenen örnek sayısı, önce/sonra karşılaştırması |
-| **Katman bazlı kanal değişimleri** | Her katmanın giriş/çıkış kanalları ve parametre sayısının önce/sonra tablosu |
+| Metrik                               | Açıklama                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| **Parametre azalması (%)**           | Toplam model parametresindeki yüzdelik düşüş                                 |
+| **FLOPs azalması (%)**               | Hesaplama karmaşıklığındaki yüzdelik düşüş (FLOPs = 2 × MACs)                |
+| **Çıkarım süresi (ms) — önce/sonra** | Budama öncesi ve sonrası gecikme, 3 tur ortanca ölçüm                        |
+| **Throughput — önce/sonra**          | Saniyede işlenen örnek sayısı, önce/sonra karşılaştırması                    |
+| **Katman bazlı kanal değişimleri**   | Her katmanın giriş/çıkış kanalları ve parametre sayısının önce/sonra tablosu |
 
 Budama sonucunda oluşan model, orijinal modelden bağımsız olarak workspace'e kaydedilir. Kullanıcı dilerse budanmış modeli inference'a sokarak **doğruluk-boyut dengesi** eğrisini aynı platform üzerinde analiz edebilir.
 
@@ -85,14 +85,14 @@ Gerçek dünyadan beklenen tipik kazanımlar, budama oranına (%30–%70 aralı�
 
 INT8 kuantizasyonu sonrasında platform şu metrikleri raporlar:
 
-| Metrik | Açıklama |
-|---|---|
-| **Dosya boyutu (byte) — önce/sonra** | Model dosyasının disk boyutu karşılaştırması |
-| **Boyut azalması (%)** | FP32 → INT8 dönüşümünde tipik olarak **%50–%75** disk tasarrufu |
-| **Çıkarım süresi (ms) — önce/sonra** | INT8 aritmetiğinin CPU'da sağladığı hızlanma |
-| **Speedup faktörü** | $\text{speedup} = t_{\text{önce}} / t_{\text{sonra}}$ |
-| **Throughput — önce/sonra** | Normalized örnekleme hızı |
-| **Önerilen dağıtım hedefi** | Platforma hangi donanım/ortamın uygun olduğu otomatik belirlenir |
+| Metrik                               | Açıklama                                                         |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| **Dosya boyutu (byte) — önce/sonra** | Model dosyasının disk boyutu karşılaştırması                     |
+| **Boyut azalması (%)**               | FP32 → INT8 dönüşümünde tipik olarak **%50–%75** disk tasarrufu  |
+| **Çıkarım süresi (ms) — önce/sonra** | INT8 aritmetiğinin CPU'da sağladığı hızlanma                     |
+| **Speedup faktörü**                  | $\text{speedup} = t_{\text{önce}} / t_{\text{sonra}}$            |
+| **Throughput — önce/sonra**          | Normalized örnekleme hızı                                        |
+| **Önerilen dağıtım hedefi**          | Platforma hangi donanım/ortamın uygun olduğu otomatik belirlenir |
 
 Kuantizasyon özellikle **gömülü sistemler ve edge cihazlar** için kritik önem taşımaktadır; CleanAI+ bu süreci tek bir tıkla erişilebilir kılmaktadır.
 
@@ -155,7 +155,7 @@ Bu özellik; platform üzerinde çalışmak için yerel Python kurulumu ve IDE g
 
 ### 9.2. Enerji Verimliliği Metriği: GFLOPs/Joule
 
-Platformun hesapladığı **GFLOPs/Joule** değeri, bir modelin birim enerji başına ne kadar hesaplama yapabildiğini ölçen bileşik bir verimlilik metriğidir. Bu değer, budama veya kuantizasyon öncesi/sonrası karşılaştırmada modelin *hem hızlandığını hem de enerji verimliliğinin arttığını* tek bir metrikle ortaya koyar. Araştırmacılar bu metriği iki farklı modeli ya da iki farklı sıkıştırma stratejisini doğrudan karşılaştırmak için kullanabilir.
+Platformun hesapladığı **GFLOPs/Joule** değeri, bir modelin birim enerji başına ne kadar hesaplama yapabildiğini ölçen bileşik bir verimlilik metriğidir. Bu değer, budama veya kuantizasyon öncesi/sonrası karşılaştırmada modelin _hem hızlandığını hem de enerji verimliliğinin arttığını_ tek bir metrikle ortaya koyar. Araştırmacılar bu metriği iki farklı modeli ya da iki farklı sıkıştırma stratejisini doğrudan karşılaştırmak için kullanabilir.
 
 ### 9.3. Tutarlı ve Karşılaştırılabilir Deney Çerçevesi
 
@@ -167,16 +167,16 @@ Farklı makaleler farklı araçlar, farklı ölçüm yöntemleri ve farklı rapo
 
 Aşağıdaki tablo, platforma erişimin olmadığı geleneksel yaklaşım ile CleanAI+ kullanımını karşılaştırmaktadır:
 
-| Görev | Geleneksel Yaklaşım | CleanAI+ ile |
-|---|---|---|
-| Inference + tam metrik hesaplama | Betik yazma, veri yükleme, sklearn entegrasyonu: **30–90 dak** | Yapılandırma + çalıştır: **2–5 dak** |
-| Confusion matrix görselleştirme | Matplotlib kodu: **15–30 dak** | Otomatik, çalıştırma tamamlanır tamamlanmaz |
-| Enerji ve karbon ölçümü | codecarbon entegrasyonu, ortam kurulumu: **1–2 saat** | Otomatik, her çalıştırmada |
-| Model budama | torch-pruning kurulumu, kriter kodu, kaydetme: **2–4 saat** | UI üzerinden yapılandırma: **5–10 dak** |
-| Önce/sonra benchmark karşılaştırması | Manuel zamanlama ve parametreler: **30–60 dak** | Otomatik, budama tamamlandığında |
-| PDF rapor hazırlama | Elle düzenleme: **2–4 saat** | Tek tıkla, otomatik PDF |
-| Önişleme pipeline'ı tanımlama | Yerel Python + IDE: değişken | Tarayıcıda kod editörü veya sürükle-bırak |
-| Deney arşivleme | Manuel dosya yönetimi | Workspace ZIP olarak dışa aktarma |
+| Görev                                | Geleneksel Yaklaşım                                            | CleanAI+ ile                                |
+| ------------------------------------ | -------------------------------------------------------------- | ------------------------------------------- |
+| Inference + tam metrik hesaplama     | Betik yazma, veri yükleme, sklearn entegrasyonu: **30–90 dak** | Yapılandırma + çalıştır: **2–5 dak**        |
+| Confusion matrix görselleştirme      | Matplotlib kodu: **15–30 dak**                                 | Otomatik, çalıştırma tamamlanır tamamlanmaz |
+| Enerji ve karbon ölçümü              | codecarbon entegrasyonu, ortam kurulumu: **1–2 saat**          | Otomatik, her çalıştırmada                  |
+| Model budama                         | torch-pruning kurulumu, kriter kodu, kaydetme: **2–4 saat**    | UI üzerinden yapılandırma: **5–10 dak**     |
+| Önce/sonra benchmark karşılaştırması | Manuel zamanlama ve parametreler: **30–60 dak**                | Otomatik, budama tamamlandığında            |
+| PDF rapor hazırlama                  | Elle düzenleme: **2–4 saat**                                   | Tek tıkla, otomatik PDF                     |
+| Önişleme pipeline'ı tanımlama        | Yerel Python + IDE: değişken                                   | Tarayıcıda kod editörü veya sürükle-bırak   |
+| Deney arşivleme                      | Manuel dosya yönetimi                                          | Workspace ZIP olarak dışa aktarma           |
 
 ---
 
