@@ -1,0 +1,83 @@
+<mxfile host="app.diagrams.net" modified="2026-04-19" version="24.0.0">
+  <diagram name="CleanAI+ Architecture" id="cleanai-arch">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="CleanAI+ — Sistem Mimarisi" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="334" y="30" width="500" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Docker Compose boundary -->
+        <mxCell id="docker-bg" value="Docker Compose" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];shape=mxgraph.lean_mapping.electronic_info_flow_edge;fontSize=13;fontStyle=1;verticalAlign=top;fillColor=#dae8fc;strokeColor=#6c8ebf;dashed=1;strokeWidth=2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="200" width="770" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="docker-label" value="Docker Compose" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontStyle=1;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="210" y="205" width="180" height="25" as="geometry" />
+        </mxCell>
+
+        <!-- User -->
+        <mxCell id="user" value="Kullanıcı&#xa;(Tarayıcı)" style="shape=mxgraph.azure.user;pointerEvents=1;sketch=0;aspect=fixed;fillColor=#023D6B;strokeColor=none;fontColor=#023D6B;labelPosition=center;verticalLabelPosition=bottom;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="65" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend -->
+        <mxCell id="frontend" value="&lt;b&gt;React Frontend&lt;/b&gt;&#xa;Vite · Tailwind CSS&#xa;Port: 5173" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;arcSize=10;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="270" y="340" width="200" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Backend -->
+        <mxCell id="backend" value="&lt;b&gt;FastAPI Backend&lt;/b&gt;&#xa;Python · Uvicorn&#xa;Port: 8000" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d6b656;fontSize=13;arcSize=10;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="560" y="340" width="200" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- MongoDB -->
+        <mxCell id="mongodb" value="&lt;b&gt;MongoDB&lt;/b&gt;&#xa;Port: 27017" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="580" y="490" width="160" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- File Storage -->
+        <mxCell id="storage" value="&lt;b&gt;Dosya Depolama&lt;/b&gt;&#xa;/uploads" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="790" y="490" width="150" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ML Engine box inside backend -->
+        <mxCell id="ml-bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;dashed=1;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="530" y="230" width="260" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ml-label" value="&lt;b&gt;ML Engine&lt;/b&gt;&#xa;PyTorch · ONNX · torch-pruning · codecarbon" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="530" y="230" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows -->
+        <!-- User → Frontend -->
+        <mxCell id="e1" value="HTTP / HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;" edge="1" source="user" target="frontend" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend → Backend -->
+        <mxCell id="e2" value="REST API / WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=11;" edge="1" source="frontend" target="backend" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend → MongoDB -->
+        <mxCell id="e3" value="Motor (async)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;" edge="1" source="backend" target="mongodb" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend → Storage -->
+        <mxCell id="e4" value="Dosya I/O" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=11;" edge="1" source="backend" target="storage" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend → ML Engine -->
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;dashed=1;strokeColor=#d6b656;" edge="1" source="backend" target="ml-bg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
